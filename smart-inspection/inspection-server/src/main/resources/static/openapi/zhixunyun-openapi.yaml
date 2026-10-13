@@ -1,0 +1,2857 @@
+openapi: 3.0.3
+info:
+  title: 智巡云完整 API 接口契约
+  version: 1.0.0-draft
+  description: |
+    智巡云——智能设备巡检与故障工单平台的完整接口设计。
+
+    本文档采用“契约先行”方式编写，既包含当前已经开发完成的接口，也包含后续模块的规划接口。
+    每个接口都使用 `x-implementation-status` 标记实现状态：
+
+    - `IMPLEMENTED`：当前后端已经实现，可以实际调用。
+    - `PLANNED`：接口契约已经确定，但 Controller / Service / Mapper 尚未开发，当前调用会返回 404。
+
+    除登录接口外，所有接口都需要 JWT。请先调用登录接口，然后在 Knife4j 的 Authorize 中填写返回的 token。
+    统一响应结构为 `{ code, message, data }`，其中 `code = 0` 表示成功。
+  contact:
+    name: 智巡云项目组
+servers:
+  - url: http://localhost:8080
+    description: 本地开发环境
+tags:
+  - name: 01. 认证管理
+    description: 登录与身份认证
+  - name: 02. 用户管理
+    description: 当前用户和管理员用户管理
+  - name: 03. 区域管理
+    description: 设备所属园区、楼栋、车间或机房区域
+  - name: 04. 设备类型管理
+    description: 设备分类和类型维护
+  - name: 05. 设备管理
+    description: 设备档案、状态和查询
+  - name: 06. 巡检项目管理
+    description: 不同设备类型的检查标准
+  - name: 07. 巡检计划管理
+    description: 巡检周期、人员、设备和项目配置
+  - name: 08. 巡检任务管理
+    description: 定时生成任务、执行巡检和提交结果
+  - name: 09. 巡检记录
+    description: 已完成巡检的不可变业务记录
+  - name: 10. 异常记录
+    description: 巡检发现的设备异常
+  - name: 11. 维修工单
+    description: 派单、接单、维修、验收和关闭
+  - name: 12. 消息通知
+    description: 工单和验收消息
+  - name: 13. 文件管理
+    description: 巡检、故障和维修图片上传
+  - name: 14. 数据统计
+    description: 工作台指标和趋势分析
+security:
+  - BearerAuth: []
+paths:
+  /api/auth/login:
+    post:
+      tags: [01. 认证管理]
+      summary: 【已实现】用户登录
+      operationId: login
+      x-implementation-status: IMPLEMENTED
+      x-roles: [PUBLIC]
+      security: []
+      description: 使用登录账号和密码换取 JWT。登录失败时不会返回 token。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+            examples:
+              admin:
+                summary: 管理员登录
+                value:
+                  username: admin
+                  password: '123456'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserLoginResult'
+        '400':
+          $ref: '#/components/responses/LoginBadRequest'
+        '401':
+          $ref: '#/components/responses/LoginFailed'
+        '403':
+          $ref: '#/components/responses/AccountDisabled'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/users/me:
+    get:
+      tags: [02. 用户管理]
+      summary: 【已实现】获取当前用户信息
+      operationId: getCurrentUser
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      description: JWT 拦截器将 userId 写入 ThreadLocal，本接口按该 userId 查询当前用户。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/users:
+    get:
+      tags: [02. 用户管理]
+      summary: 【已实现】分页查询用户
+      operationId: pageUsers
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: username
+          in: query
+          description: 登录账号，支持模糊匹配
+          schema: { type: string, maxLength: 32 }
+        - name: displayName
+          in: query
+          description: 展示名称，支持模糊匹配
+          schema: { type: string, maxLength: 50 }
+        - name: roleCode
+          in: query
+          schema: { $ref: '#/components/schemas/RoleCode' }
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [02. 用户管理]
+      summary: 【已实现】新增用户
+      operationId: createUser
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreateRequest' }
+      responses:
+        '200':
+          description: 创建成功，返回用户 ID
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/users/options:
+    get:
+      tags: [02. 用户管理]
+      summary: 【已实现】查询用户下拉选项
+      operationId: listUserOptions
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 创建巡检计划或派发工单时使用，只返回启用用户的最小字段。
+      parameters:
+        - name: roleCode
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/RoleCode' }
+        - name: keyword
+          in: query
+          schema: { type: string, maxLength: 50 }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserOptionListResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [02. 用户管理]
+      summary: 【已实现】查询用户详情
+      operationId: getUser
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [02. 用户管理]
+      summary: 【已实现】修改用户基本信息
+      operationId: updateUser
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 登录账号和密码不通过此接口修改。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/users/{userId}/status:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      tags: [02. 用户管理]
+      summary: 【已实现】启用或禁用用户
+      operationId: changeUserStatus
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 禁止管理员禁用自己；禁用后新请求无法继续通过身份校验。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnabledStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/users/{userId}/password/reset:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [02. 用户管理]
+      summary: 【已实现】管理员重置用户密码
+      operationId: resetUserPassword
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/areas:
+    get:
+      tags: [03. 区域管理]
+      summary: 【已实现】分页查询区域
+      operationId: pageAreas
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AreaPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [03. 区域管理]
+      summary: 【已实现】新增区域
+      operationId: createArea
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AreaSaveRequest' }
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/areas/options:
+    get:
+      tags: [03. 区域管理]
+      summary: 【已实现】查询启用区域选项
+      operationId: listAreaOptions
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AreaOptionListResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/areas/{areaId}:
+    parameters:
+      - $ref: '#/components/parameters/AreaId'
+    get:
+      tags: [03. 区域管理]
+      summary: 【已实现】查询区域详情
+      operationId: getArea
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AreaDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [03. 区域管理]
+      summary: 【已实现】修改区域
+      operationId: updateArea
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AreaSaveRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/areas/{areaId}/status:
+    parameters:
+      - $ref: '#/components/parameters/AreaId'
+    patch:
+      tags: [03. 区域管理]
+      summary: 【已实现】启用或停用区域
+      operationId: changeAreaStatus
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 区域仍有关联设备时不允许停用。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnabledStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/equipment-types:
+    get:
+      tags: [04. 设备类型管理]
+      summary: 分页查询设备类型
+      operationId: pageEquipmentTypes
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentTypePageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [04. 设备类型管理]
+      summary: 新增设备类型
+      operationId: createEquipmentType
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EquipmentTypeSaveRequest' }
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/equipment-types/options:
+    get:
+      tags: [04. 设备类型管理]
+      summary: 查询启用设备类型选项
+      operationId: listEquipmentTypeOptions
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentTypeOptionListResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/equipment-types/{equipmentTypeId}:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentTypeId'
+    get:
+      tags: [04. 设备类型管理]
+      summary: 查询设备类型详情
+      operationId: getEquipmentType
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentTypeDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [04. 设备类型管理]
+      summary: 修改设备类型
+      operationId: updateEquipmentType
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EquipmentTypeSaveRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/equipment-types/{equipmentTypeId}/status:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentTypeId'
+    patch:
+      tags: [04. 设备类型管理]
+      summary: 启用或停用设备类型
+      operationId: changeEquipmentTypeStatus
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 类型下仍有启用设备时不允许停用。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnabledStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/equipment:
+    get:
+      tags: [05. 设备管理]
+      summary: 【已实现】分页查询设备
+      operationId: pageEquipment
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - name: equipmentTypeId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: areaId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/EquipmentStatus' }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [05. 设备管理]
+      summary: 【已实现】新增设备
+      operationId: createEquipment
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EquipmentSaveRequest' }
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/equipment/options:
+    get:
+      tags: [05. 设备管理]
+      summary: 【已实现】查询可巡检设备选项
+      operationId: listEquipmentOptions
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 创建巡检计划时使用，只返回状态正常且未停用的设备。
+      parameters:
+        - name: equipmentTypeId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: areaId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentOptionListResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/equipment/{equipmentId}:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+    get:
+      tags: [05. 设备管理]
+      summary: 【已实现】查询设备详情
+      operationId: getEquipment
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [05. 设备管理]
+      summary: 【已实现】修改设备
+      operationId: updateEquipment
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 设备业务状态不能通过此接口随意修改。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EquipmentSaveRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [05. 设备管理]
+      summary: 【已实现】删除未被业务引用的设备
+      operationId: deleteEquipment
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 已关联计划、任务、异常或工单的设备不能物理删除，只能停用。
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/equipment/{equipmentId}/status:
+    parameters:
+      - $ref: '#/components/parameters/EquipmentId'
+    patch:
+      tags: [05. 设备管理]
+      summary: 【已实现】启用或停用设备
+      operationId: changeEquipmentStatus
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 管理员仅可设置 NORMAL 或 DISABLED；FAULT 和 IN_REPAIR 由异常及工单流程自动维护。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EquipmentStatusChangeRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-items:
+    get:
+      tags: [06. 巡检项目管理]
+      summary: 【已实现】分页查询巡检项目
+      operationId: pageInspectionItems
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - name: equipmentTypeId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: resultType
+          in: query
+          schema: { $ref: '#/components/schemas/InspectionResultType' }
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionItemPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [06. 巡检项目管理]
+      summary: 【已实现】新增巡检项目
+      operationId: createInspectionItem
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionItemSaveRequest' }
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-items/options:
+    get:
+      tags: [06. 巡检项目管理]
+      summary: 【已实现】查询可用巡检项目选项
+      operationId: listInspectionItemOptions
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - name: equipmentTypeId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionItemOptionListResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/inspection-items/{inspectionItemId}:
+    parameters:
+      - $ref: '#/components/parameters/InspectionItemId'
+    get:
+      tags: [06. 巡检项目管理]
+      summary: 【已实现】查询巡检项目详情
+      operationId: getInspectionItem
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionItemDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [06. 巡检项目管理]
+      summary: 【已实现】修改巡检项目
+      operationId: updateInspectionItem
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 修改只影响以后生成的任务，不回写历史巡检记录。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionItemSaveRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-items/{inspectionItemId}/status:
+    parameters:
+      - $ref: '#/components/parameters/InspectionItemId'
+    patch:
+      tags: [06. 巡检项目管理]
+      summary: 【已实现】启用或停用巡检项目
+      operationId: changeInspectionItemStatus
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnabledStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-plans:
+    get:
+      tags: [07. 巡检计划管理]
+      summary: 【已实现】分页查询巡检计划
+      operationId: pageInspectionPlans
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - name: inspectorId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: frequencyType
+          in: query
+          schema: { $ref: '#/components/schemas/FrequencyType' }
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionPlanPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [07. 巡检计划管理]
+      summary: 【已实现】创建巡检计划
+      operationId: createInspectionPlan
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 设备、巡检项目、巡检员和周期配置必须同时有效；同一设备不能在同一时刻被重复计划。deadlineHours 省略时默认为 24。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionPlanSaveRequest' }
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdResult' }
+              example: { code: 0, message: success, data: { id: 6 } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-plans/{inspectionPlanId}:
+    parameters:
+      - $ref: '#/components/parameters/InspectionPlanId'
+    get:
+      tags: [07. 巡检计划管理]
+      summary: 【已实现】查询巡检计划详情
+      operationId: getInspectionPlan
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionPlanDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [07. 巡检计划管理]
+      summary: 【已实现】修改巡检计划
+      operationId: updateInspectionPlan
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 修改仅影响以后生成的任务，已生成任务保留生成时的快照。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionPlanSaveRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [07. 巡检计划管理]
+      summary: 【已实现】删除从未生成任务的巡检计划
+      operationId: deleteInspectionPlan
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 已生成过任务的计划只能停用，不能删除。
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-plans/{inspectionPlanId}/status:
+    parameters:
+      - $ref: '#/components/parameters/InspectionPlanId'
+    patch:
+      tags: [07. 巡检计划管理]
+      summary: 【已实现】启用或停用巡检计划
+      operationId: changeInspectionPlanStatus
+      x-implementation-status: IMPLEMENTED
+      x-roles: [ADMIN]
+      description: 停用只阻止继续生成任务，不取消已经生成的任务。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnabledStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-tasks:
+    get:
+      tags: [08. 巡检任务管理]
+      summary: 【规划】分页查询巡检任务
+      operationId: pageInspectionTasks
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR]
+      description: 管理员可查看全部；巡检员只能查看分配给自己的任务。
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: taskNo
+          in: query
+          schema: { type: string, maxLength: 40 }
+        - name: inspectorId
+          in: query
+          description: 仅管理员可指定；巡检员传入也会被忽略
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/InspectionTaskStatus' }
+        - name: taskDateFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: taskDateTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionTaskPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/inspection-tasks/today:
+    get:
+      tags: [08. 巡检任务管理]
+      summary: 【规划】查询我的今日巡检任务
+      operationId: listTodayInspectionTasks
+      x-implementation-status: PLANNED
+      x-roles: [INSPECTOR]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/InspectionTaskStatus' }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionTaskPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/inspection-tasks/{inspectionTaskId}:
+    parameters:
+      - $ref: '#/components/parameters/InspectionTaskId'
+    get:
+      tags: [08. 巡检任务管理]
+      summary: 【规划】查询巡检任务详情
+      operationId: getInspectionTask
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR]
+      description: 巡检员只能查询自己的任务；详情包含设备和生成任务时固化的巡检项目快照。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionTaskDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/inspection-tasks/{inspectionTaskId}/start:
+    parameters:
+      - $ref: '#/components/parameters/InspectionTaskId'
+    post:
+      tags: [08. 巡检任务管理]
+      summary: 【规划】开始巡检任务
+      operationId: startInspectionTask
+      x-implementation-status: PLANNED
+      x-roles: [INSPECTOR]
+      description: 仅任务负责人可以将 PENDING 变为 IN_PROGRESS；重复点击会返回 409。
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-tasks/{inspectionTaskId}/submit:
+    parameters:
+      - $ref: '#/components/parameters/InspectionTaskId'
+    post:
+      tags: [08. 巡检任务管理]
+      summary: 【规划】提交巡检结果
+      operationId: submitInspectionTask
+      x-implementation-status: PLANNED
+      x-roles: [INSPECTOR]
+      description: |
+        仅负责人可以提交 IN_PROGRESS 任务。后端在一个事务中完成：
+        保存巡检记录 → 保存异常记录 → 自动创建维修工单 → 修改设备状态 → 完成任务。
+        若任一步失败，整个事务回滚。重复提交返回 409。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionTaskSubmitRequest' }
+      responses:
+        '200':
+          description: 提交成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionSubmitResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-tasks/{inspectionTaskId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/InspectionTaskId'
+    post:
+      tags: [08. 巡检任务管理]
+      summary: 【规划】取消巡检任务
+      operationId: cancelInspectionTask
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      description: 仅 PENDING 任务可以取消，已开始或已完成任务不能取消。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/inspection-records:
+    get:
+      tags: [09. 巡检记录]
+      summary: 【规划】分页查询巡检记录
+      operationId: pageInspectionRecords
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR]
+      description: 管理员查看全部，巡检员仅查看自己的历史记录。
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: taskNo
+          in: query
+          schema: { type: string, maxLength: 40 }
+        - name: equipmentId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: inspectorId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: normal
+          in: query
+          schema: { type: boolean }
+        - name: completedFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: completedTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionRecordPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/inspection-records/{inspectionRecordId}:
+    parameters:
+      - $ref: '#/components/parameters/InspectionRecordId'
+    get:
+      tags: [09. 巡检记录]
+      summary: 【规划】查询巡检记录详情
+      operationId: getInspectionRecord
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionRecordDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/fault-records:
+    get:
+      tags: [10. 异常记录]
+      summary: 【规划】分页查询异常记录
+      operationId: pageFaultRecords
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      description: 巡检员仅查看自己上报的异常；维修人员仅查看与自己工单关联的异常。
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: faultNo
+          in: query
+          schema: { type: string, maxLength: 40 }
+        - name: equipmentId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: faultLevel
+          in: query
+          schema: { $ref: '#/components/schemas/FaultLevel' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/FaultStatus' }
+        - name: reportedFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: reportedTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FaultRecordPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/fault-records/{faultRecordId}:
+    parameters:
+      - $ref: '#/components/parameters/FaultRecordId'
+    get:
+      tags: [10. 异常记录]
+      summary: 【规划】查询异常记录详情
+      operationId: getFaultRecord
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FaultRecordDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/work-orders:
+    get:
+      tags: [11. 维修工单]
+      summary: 【规划】分页查询维修工单
+      operationId: pageWorkOrders
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, MAINTAINER]
+      description: 管理员查看全部工单；维修人员只能查看派给自己的工单。
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: workOrderNo
+          in: query
+          schema: { type: string, maxLength: 40 }
+        - name: equipmentId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: maintainerId
+          in: query
+          description: 仅管理员可指定；维修人员传入也会被忽略
+          schema: { type: integer, format: int64 }
+        - name: priority
+          in: query
+          schema: { $ref: '#/components/schemas/WorkOrderPriority' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/WorkOrderStatus' }
+        - name: createdFrom
+          in: query
+          schema: { type: string, format: date }
+        - name: createdTo
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkOrderPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/work-orders/{workOrderId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    get:
+      tags: [11. 维修工单]
+      summary: 【规划】查询维修工单详情
+      operationId: getWorkOrder
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, MAINTAINER]
+      description: 维修人员只能查询派给自己的工单。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkOrderDetailResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/work-orders/{workOrderId}/assign:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    post:
+      tags: [11. 维修工单]
+      summary: 【规划】派发或重新派发工单
+      operationId: assignWorkOrder
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      description: |
+        首次派单：PENDING_ASSIGNMENT → PENDING_ACCEPTANCE。
+        未接单前允许重新指定维修人员，状态仍为 PENDING_ACCEPTANCE。
+        后端使用“工单 ID + 当前状态”的条件更新保证并发下只有一次有效操作。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkOrderAssignRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/work-orders/{workOrderId}/accept:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    post:
+      tags: [11. 维修工单]
+      summary: 【规划】接单并开始维修
+      operationId: acceptWorkOrder
+      x-implementation-status: PLANNED
+      x-roles: [MAINTAINER]
+      description: 仅被指派的维修人员可将 PENDING_ACCEPTANCE 变为 PROCESSING；重复接单返回 409。
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/work-orders/{workOrderId}/submit-result:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    post:
+      tags: [11. 维修工单]
+      summary: 【规划】提交维修结果
+      operationId: submitWorkOrderResult
+      x-implementation-status: PLANNED
+      x-roles: [MAINTAINER]
+      description: 仅负责人可将 PROCESSING 变为 PENDING_VERIFICATION，并保存维修说明和现场图片。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkOrderResultSubmitRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/work-orders/{workOrderId}/verify:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    post:
+      tags: [11. 维修工单]
+      summary: 【规划】验收维修工单
+      operationId: verifyWorkOrder
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      description: |
+        仅 PENDING_VERIFICATION 可验收。
+        通过：变为 COMPLETED，同时关闭异常并恢复设备状态。
+        不通过：变为 REJECTED，维修人员需要重新处理。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkOrderVerifyRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/work-orders/{workOrderId}/rework:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    post:
+      tags: [11. 维修工单]
+      summary: 【规划】开始返工
+      operationId: reworkWorkOrder
+      x-implementation-status: PLANNED
+      x-roles: [MAINTAINER]
+      description: 仅负责人可将 REJECTED 变回 PROCESSING。
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RemarkRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/work-orders/{workOrderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    post:
+      tags: [11. 维修工单]
+      summary: 【规划】取消工单
+      operationId: cancelWorkOrder
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      description: 仅 PENDING_ASSIGNMENT 或 PENDING_ACCEPTANCE 可以取消；取消原因必须保留在操作记录中。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/work-orders/{workOrderId}/operations:
+    parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+    get:
+      tags: [11. 维修工单]
+      summary: 【规划】查询工单操作记录
+      operationId: listWorkOrderOperations
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, MAINTAINER]
+      description: 按时间升序返回派单、接单、提交、验收、返工和取消记录。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkOrderOperationListResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/notifications:
+    get:
+      tags: [12. 消息通知]
+      summary: 【规划】分页查询我的通知
+      operationId: pageNotifications
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/NotificationType' }
+        - name: read
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationPageResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/notifications/unread-count:
+    get:
+      tags: [12. 消息通知]
+      summary: 【规划】查询未读通知数
+      operationId: getUnreadNotificationCount
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UnreadCountResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/notifications/{notificationId}/read:
+    parameters:
+      - $ref: '#/components/parameters/NotificationId'
+    patch:
+      tags: [12. 消息通知]
+      summary: 【规划】将通知标为已读
+      operationId: readNotification
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      description: 只能操作属于当前用户的通知；重复标记按幂等成功处理。
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/notifications/read-all:
+    patch:
+      tags: [12. 消息通知]
+      summary: 【规划】全部标为已读
+      operationId: readAllNotifications
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      responses:
+        '200': { $ref: '#/components/responses/SuccessVoid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/files/images:
+    post:
+      tags: [13. 文件管理]
+      summary: 【规划】上传业务图片
+      operationId: uploadImage
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      description: 上传到 MinIO，数据库业务表只保存 objectKey 和访问 URL。支持 JPEG、PNG、WEBP，单文件不超过 10MB。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, bizType]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                bizType:
+                  $ref: '#/components/schemas/FileBizType'
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileUploadResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413':
+          description: 文件超过大小限制
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResult' }
+
+  /api/statistics/dashboard:
+    get:
+      tags: [14. 数据统计]
+      summary: 【规划】查询工作台核心指标
+      operationId: getDashboardStatistics
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN, INSPECTOR, MAINTAINER]
+      description: 按角色返回有权限查看的统计值；巡检员和维修人员只统计自己的任务或工单。
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardStatisticsResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/statistics/work-orders/trend:
+    get:
+      tags: [14. 数据统计]
+      summary: 【规划】查询工单趋势
+      operationId: getWorkOrderTrend
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/StartDate'
+        - $ref: '#/components/parameters/EndDate'
+        - $ref: '#/components/parameters/TimeGranularity'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkOrderTrendResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/statistics/faults/distribution:
+    get:
+      tags: [14. 数据统计]
+      summary: 【规划】查询异常等级分布
+      operationId: getFaultDistribution
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      parameters:
+        - $ref: '#/components/parameters/StartDate'
+        - $ref: '#/components/parameters/EndDate'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FaultDistributionResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/statistics/equipment/status-distribution:
+    get:
+      tags: [14. 数据统计]
+      summary: 【规划】查询设备状态分布
+      operationId: getEquipmentStatusDistribution
+      x-implementation-status: PLANNED
+      x-roles: [ADMIN]
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EquipmentStatusDistributionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 登录后填写返回的 token，不需要手动输入 Bearer 前缀
+
+  parameters:
+    PageNum:
+      name: pageNum
+      in: query
+      required: true
+      description: 页码，从 1 开始
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      required: true
+      description: 每页数量，最大 100
+      schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+    Keyword:
+      name: keyword
+      in: query
+      required: false
+      description: 编码或名称关键字，支持模糊匹配
+      schema: { type: string, maxLength: 50 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    AreaId:
+      name: areaId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    EquipmentTypeId:
+      name: equipmentTypeId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    EquipmentId:
+      name: equipmentId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    InspectionItemId:
+      name: inspectionItemId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    InspectionPlanId:
+      name: inspectionPlanId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    InspectionTaskId:
+      name: inspectionTaskId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    InspectionRecordId:
+      name: inspectionRecordId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    FaultRecordId:
+      name: faultRecordId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    WorkOrderId:
+      name: workOrderId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    StartDate:
+      name: startDate
+      in: query
+      required: true
+      schema: { type: string, format: date, example: '2026-08-01' }
+    EndDate:
+      name: endDate
+      in: query
+      required: true
+      schema: { type: string, format: date, example: '2026-08-31' }
+    TimeGranularity:
+      name: granularity
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [DAY, WEEK, MONTH]
+        default: DAY
+
+  responses:
+    SuccessVoid:
+      description: 操作成功
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/VoidResult' }
+    ValidationError:
+      description: 请求参数校验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example:
+            code: 10001
+            message: 请求参数校验失败
+            data: null
+    LoginBadRequest:
+      description: 登录参数校验失败或用户不存在（与当前代码行为一致）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          examples:
+            validationFailed:
+              value: { code: 10001, message: 用户名不能为空, data: null }
+            userNotFound:
+              value: { code: 11006, message: 用户不存在, data: null }
+    LoginFailed:
+      description: 用户名或密码错误
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example:
+            code: 11001
+            message: 用户名或密码错误
+            data: null
+    AccountDisabled:
+      description: 用户账号已被禁用
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example:
+            code: 11002
+            message: 用户账号已被禁用
+            data: null
+    Unauthorized:
+      description: 未携带 Token、Token 无效或已过期
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          examples:
+            tokenMissing:
+              value: { code: 11003, message: 请求未携带 Token, data: null }
+            tokenInvalid:
+              value: { code: 11004, message: Token 无效或已过期, data: null }
+    Forbidden:
+      description: 当前用户无权执行该操作
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example: { code: 11005, message: 当前用户无权执行该操作, data: null }
+    NotFound:
+      description: 指定的业务数据不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example: { code: 13001, message: 数据不存在, data: null }
+    Conflict:
+      description: 唯一值冲突、重复操作、状态不允许或并发更新失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example: { code: 15004, message: 数据状态已变化，请刷新后重试, data: null }
+    InternalError:
+      description: 系统内部异常
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResult' }
+          example: { code: 50000, message: 系统内部异常, data: null }
+
+  schemas:
+    RoleCode:
+      type: string
+      description: ADMIN-系统管理员，INSPECTOR-巡检员，MAINTAINER-维修人员
+      enum: [ADMIN, INSPECTOR, MAINTAINER]
+      example: ADMIN
+    EquipmentStatus:
+      type: string
+      description: NORMAL-正常，FAULT-故障，IN_REPAIR-维修中，DISABLED-已停用
+      enum: [NORMAL, FAULT, IN_REPAIR, DISABLED]
+    InspectionResultType:
+      type: string
+      description: BOOLEAN-正常/异常，NUMBER-数值，TEXT-文本
+      enum: [BOOLEAN, NUMBER, TEXT]
+    FrequencyType:
+      type: string
+      description: 巡检周期类型
+      enum: [DAILY, WEEKLY, MONTHLY]
+    InspectionTaskStatus:
+      type: string
+      description: PENDING-待巡检，IN_PROGRESS-巡检中，COMPLETED-已完成，OVERDUE-已逾期，CANCELLED-已取消
+      enum: [PENDING, IN_PROGRESS, COMPLETED, OVERDUE, CANCELLED]
+    FaultLevel:
+      type: string
+      description: LOW-低，MEDIUM-中，HIGH-高，URGENT-紧急
+      enum: [LOW, MEDIUM, HIGH, URGENT]
+    FaultStatus:
+      type: string
+      description: REPORTED-已上报，ORDER_CREATED-已创建工单，PROCESSING-处理中，RESOLVED-已解决，CLOSED-已关闭
+      enum: [REPORTED, ORDER_CREATED, PROCESSING, RESOLVED, CLOSED]
+    WorkOrderPriority:
+      type: string
+      description: LOW-低，MEDIUM-中，HIGH-高，URGENT-紧急
+      enum: [LOW, MEDIUM, HIGH, URGENT]
+    WorkOrderStatus:
+      type: string
+      description: 待派单 → 待接单 → 处理中 → 待验收 → 已完成；验收失败进入已驳回
+      enum:
+        - PENDING_ASSIGNMENT
+        - PENDING_ACCEPTANCE
+        - PROCESSING
+        - PENDING_VERIFICATION
+        - COMPLETED
+        - REJECTED
+        - CANCELLED
+    NotificationType:
+      type: string
+      enum: [WORK_ORDER_ASSIGNED, URGENT_FAULT, VERIFICATION_PASSED, VERIFICATION_REJECTED]
+    FileBizType:
+      type: string
+      enum: [INSPECTION, FAULT, REPAIR]
+    WorkOrderOperationType:
+      type: string
+      enum: [CREATE, ASSIGN, REASSIGN, ACCEPT, SUBMIT_RESULT, VERIFY_PASS, VERIFY_REJECT, REWORK, CANCEL]
+
+    ResultBase:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+          description: 业务状态码，0 表示成功
+          example: 0
+        message:
+          type: string
+          example: success
+    ErrorResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              nullable: true
+              example: null
+    VoidResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              nullable: true
+              example: null
+    IdData:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+    IdResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/IdData' }
+    PageMeta:
+      type: object
+      required: [pageNum, pageSize, total]
+      properties:
+        pageNum: { type: integer, example: 1 }
+        pageSize: { type: integer, example: 10 }
+        total: { type: integer, format: int64, example: 36 }
+    OptionItem:
+      type: object
+      required: [id, code, name]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: CODE001 }
+        name: { type: string, example: 示例名称 }
+
+    UserLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          example: admin
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          maxLength: 64
+          example: '123456'
+    UserLoginData:
+      type: object
+      required: [userId, username, displayName, roleCode, token, tokenType, expiresIn]
+      properties:
+        userId: { type: integer, format: int64, example: 1 }
+        username: { type: string, example: admin }
+        displayName: { type: string, example: 系统管理员 }
+        roleCode: { $ref: '#/components/schemas/RoleCode' }
+        token: { type: string, description: JWT, example: eyJhbGciOiJIUzI1NiJ9... }
+        tokenType: { type: string, enum: [Bearer], example: Bearer }
+        expiresIn: { type: integer, format: int64, description: 有效期，单位秒, example: 7200 }
+    UserLoginResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/UserLoginData' }
+    CurrentUserData:
+      type: object
+      required: [userId, username, displayName, roleCode]
+      properties:
+        userId: { type: integer, format: int64, example: 1 }
+        username: { type: string, example: admin }
+        displayName: { type: string, example: 系统管理员 }
+        roleCode: { $ref: '#/components/schemas/RoleCode' }
+    CurrentUserResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/CurrentUserData' }
+    UserCreateRequest:
+      type: object
+      required: [username, password, displayName, roleCode]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 32, example: inspector01 }
+        password: { type: string, format: password, writeOnly: true, minLength: 6, maxLength: 64, example: '123456' }
+        displayName: { type: string, maxLength: 50, example: 张巡检 }
+        roleCode: { $ref: '#/components/schemas/RoleCode' }
+    UserUpdateRequest:
+      type: object
+      required: [displayName, roleCode]
+      properties:
+        displayName: { type: string, maxLength: 50, example: 张巡检 }
+        roleCode: { $ref: '#/components/schemas/RoleCode' }
+    EnabledStatusRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean, example: true }
+    ResetPasswordRequest:
+      type: object
+      required: [newPassword]
+      properties:
+        newPassword: { type: string, format: password, writeOnly: true, minLength: 6, maxLength: 64, example: '654321' }
+    UserSummary:
+      type: object
+      required: [id, username, displayName, roleCode, enabled, createdAt]
+      properties:
+        id: { type: integer, format: int64, example: 2 }
+        username: { type: string, example: inspector01 }
+        displayName: { type: string, example: 张巡检 }
+        roleCode: { $ref: '#/components/schemas/RoleCode' }
+        enabled: { type: boolean, example: true }
+        createdAt: { type: string, format: date-time, example: '2026-08-27T10:00:00+08:00' }
+    UserDetail:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            updatedAt: { type: string, format: date-time, example: '2026-08-27T10:30:00+08:00' }
+    UserPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [records]
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/UserSummary' }
+    UserPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/UserPageData' }
+    UserDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/UserDetail' }
+    UserOption:
+      type: object
+      required: [id, displayName, roleCode]
+      properties:
+        id: { type: integer, format: int64, example: 2 }
+        displayName: { type: string, example: 张巡检 }
+        roleCode: { $ref: '#/components/schemas/RoleCode' }
+    UserOptionListResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/UserOption' }
+
+    AreaSaveRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, maxLength: 30, example: AREA-A1 }
+        name: { type: string, maxLength: 50, example: A 栋一层机房 }
+        description: { type: string, maxLength: 255, example: A 栋一层弱电机房 }
+    AreaSummary:
+      type: object
+      required: [id, code, name, enabled, equipmentCount, createdAt]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: AREA-A1 }
+        name: { type: string, example: A 栋一层机房 }
+        enabled: { type: boolean, example: true }
+        equipmentCount: { type: integer, example: 12 }
+        createdAt: { type: string, format: date-time }
+    AreaDetail:
+      allOf:
+        - $ref: '#/components/schemas/AreaSummary'
+        - type: object
+          properties:
+            description: { type: string, example: A 栋一层弱电机房 }
+            updatedAt: { type: string, format: date-time }
+    AreaPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [records]
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/AreaSummary' }
+    AreaPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/AreaPageData' } }
+    AreaDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/AreaDetail' } }
+    AreaOptionListResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/OptionItem' }
+
+    EquipmentTypeSaveRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, maxLength: 30, example: UPS }
+        name: { type: string, maxLength: 50, example: UPS 电源 }
+        description: { type: string, maxLength: 255, example: 不间断电源设备 }
+    EquipmentTypeSummary:
+      type: object
+      required: [id, code, name, enabled, equipmentCount, inspectionItemCount, createdAt]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: UPS }
+        name: { type: string, example: UPS 电源 }
+        enabled: { type: boolean, example: true }
+        equipmentCount: { type: integer, example: 20 }
+        inspectionItemCount: { type: integer, example: 6 }
+        createdAt: { type: string, format: date-time }
+    EquipmentTypeDetail:
+      allOf:
+        - $ref: '#/components/schemas/EquipmentTypeSummary'
+        - type: object
+          properties:
+            description: { type: string, example: 不间断电源设备 }
+            updatedAt: { type: string, format: date-time }
+    EquipmentTypePageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/EquipmentTypeSummary' }
+    EquipmentTypePageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/EquipmentTypePageData' } }
+    EquipmentTypeDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/EquipmentTypeDetail' } }
+    EquipmentTypeOptionListResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/OptionItem' }
+
+    EquipmentSaveRequest:
+      type: object
+      required: [code, name, equipmentTypeId, areaId]
+      properties:
+        code: { type: string, maxLength: 40, example: UPS-A1-001 }
+        name: { type: string, maxLength: 80, example: A1 机房 1 号 UPS }
+        equipmentTypeId: { type: integer, format: int64, example: 1 }
+        areaId: { type: integer, format: int64, example: 1 }
+        model: { type: string, maxLength: 80, example: SPM10K }
+        manufacturer: { type: string, maxLength: 80, example: 示例设备厂商 }
+        serialNumber: { type: string, maxLength: 80, example: SN20260827001 }
+        installDate: { type: string, format: date, example: '2026-01-15' }
+        remark: { type: string, maxLength: 500, example: 核心机房供电设备 }
+    EquipmentStatusChangeRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [NORMAL, DISABLED]
+          example: DISABLED
+        reason: { type: string, maxLength: 255, example: 设备停用检修 }
+    EquipmentSummary:
+      type: object
+      required: [id, code, name, equipmentTypeId, equipmentTypeName, areaId, areaName, status]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: UPS-A1-001 }
+        name: { type: string, example: A1 机房 1 号 UPS }
+        equipmentTypeId: { type: integer, format: int64, example: 1 }
+        equipmentTypeName: { type: string, example: UPS 电源 }
+        areaId: { type: integer, format: int64, example: 1 }
+        areaName: { type: string, example: A 栋一层机房 }
+        status: { $ref: '#/components/schemas/EquipmentStatus' }
+        lastInspectionAt: { type: string, format: date-time, nullable: true }
+    EquipmentDetail:
+      allOf:
+        - $ref: '#/components/schemas/EquipmentSummary'
+        - type: object
+          properties:
+            model: { type: string, example: SPM10K }
+            manufacturer: { type: string, example: 示例设备厂商 }
+            serialNumber: { type: string, example: SN20260827001 }
+            installDate: { type: string, format: date }
+            remark: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    EquipmentPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/EquipmentSummary' }
+    EquipmentPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/EquipmentPageData' } }
+    EquipmentDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/EquipmentDetail' } }
+    EquipmentOption:
+      type: object
+      required: [id, code, name, equipmentTypeId, areaId]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: UPS-A1-001 }
+        name: { type: string, example: A1 机房 1 号 UPS }
+        equipmentTypeId: { type: integer, format: int64, example: 1 }
+        areaId: { type: integer, format: int64, example: 1 }
+    EquipmentOptionListResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/EquipmentOption' }
+
+    InspectionItemSaveRequest:
+      type: object
+      required: [code, name, equipmentTypeId, standardDescription, resultType, required]
+      properties:
+        code: { type: string, maxLength: 40, example: UPS-VOLTAGE }
+        name: { type: string, maxLength: 80, example: 输出电压 }
+        equipmentTypeId: { type: integer, format: int64, example: 1 }
+        checkMethod: { type: string, maxLength: 255, example: 读取设备显示屏输出电压 }
+        standardDescription: { type: string, maxLength: 500, example: 输出电压应在 210V 至 230V 之间 }
+        resultType: { $ref: '#/components/schemas/InspectionResultType' }
+        unit: { type: string, maxLength: 20, example: V }
+        minValue: { type: number, format: double, nullable: true, example: 210 }
+        maxValue: { type: number, format: double, nullable: true, example: 230 }
+        required: { type: boolean, example: true }
+    InspectionItemSummary:
+      type: object
+      required: [id, code, name, equipmentTypeId, equipmentTypeName, resultType, required, enabled]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: UPS-VOLTAGE }
+        name: { type: string, example: 输出电压 }
+        equipmentTypeId: { type: integer, format: int64, example: 1 }
+        equipmentTypeName: { type: string, example: UPS 电源 }
+        resultType: { $ref: '#/components/schemas/InspectionResultType' }
+        required: { type: boolean, example: true }
+        enabled: { type: boolean, example: true }
+    InspectionItemDetail:
+      allOf:
+        - $ref: '#/components/schemas/InspectionItemSummary'
+        - type: object
+          properties:
+            checkMethod: { type: string }
+            standardDescription: { type: string }
+            unit: { type: string, nullable: true }
+            minValue: { type: number, format: double, nullable: true }
+            maxValue: { type: number, format: double, nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    InspectionItemPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionItemSummary' }
+    InspectionItemPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionItemPageData' } }
+    InspectionItemDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionItemDetail' } }
+    InspectionItemOption:
+      type: object
+      required: [id, code, name, resultType, required]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        code: { type: string, example: UPS-VOLTAGE }
+        name: { type: string, example: 输出电压 }
+        resultType: { $ref: '#/components/schemas/InspectionResultType' }
+        unit: { type: string, nullable: true, example: V }
+        required: { type: boolean, example: true }
+    InspectionItemOptionListResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionItemOption' }
+
+    InspectionPlanSaveRequest:
+      type: object
+      required: [name, inspectorId, frequencyType, executionTime, startDate, equipmentIds, inspectionItemIds]
+      description: WEEKLY 时 weekDays 必填；MONTHLY 时 monthDays 必填；所选设备需属于同一设备类型。
+      properties:
+        name: { type: string, maxLength: 100, example: A1 机房 UPS 日常巡检 }
+        inspectorId: { type: integer, format: int64, example: 2 }
+        frequencyType: { $ref: '#/components/schemas/FrequencyType' }
+        executionTime: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '09:00' }
+        weekDays:
+          type: array
+          description: 周一为 1，周日为 7；仅 WEEKLY 使用
+          uniqueItems: true
+          items: { type: integer, minimum: 1, maximum: 7 }
+          example: [1, 3, 5]
+        monthDays:
+          type: array
+          description: 仅 MONTHLY 使用，为避免短月问题限制为 1 至 28
+          uniqueItems: true
+          items: { type: integer, minimum: 1, maximum: 28 }
+          example: [1, 15]
+        startDate: { type: string, format: date, example: '2026-09-01' }
+        endDate: { type: string, format: date, nullable: true, example: '2027-08-31' }
+        deadlineHours: { type: integer, minimum: 1, maximum: 168, default: 24, example: 24 }
+        equipmentIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: integer, format: int64 }
+          example: [1, 2]
+        inspectionItemIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: integer, format: int64 }
+          example: [1, 2, 3]
+        remark: { type: string, maxLength: 500 }
+    InspectionPlanSummary:
+      type: object
+      required: [id, name, inspectorId, inspectorName, frequencyType, executionTime, equipmentCount, inspectionItemCount, enabled]
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        name: { type: string, example: A1 机房 UPS 日常巡检 }
+        inspectorId: { type: integer, format: int64, example: 2 }
+        inspectorName: { type: string, example: 张巡检 }
+        frequencyType: { $ref: '#/components/schemas/FrequencyType' }
+        executionTime: { type: string, example: '09:00' }
+        equipmentCount: { type: integer, example: 2 }
+        inspectionItemCount: { type: integer, example: 3 }
+        enabled: { type: boolean, example: true }
+        nextGenerateAt: { type: string, format: date-time, nullable: true }
+    InspectionPlanDetail:
+      allOf:
+        - $ref: '#/components/schemas/InspectionPlanSummary'
+        - type: object
+          properties:
+            weekDays:
+              type: array
+              items: { type: integer }
+            monthDays:
+              type: array
+              items: { type: integer }
+            startDate: { type: string, format: date }
+            endDate: { type: string, format: date, nullable: true }
+            deadlineHours: { type: integer, example: 24 }
+            equipment:
+              type: array
+              items: { $ref: '#/components/schemas/EquipmentOption' }
+            inspectionItems:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionItemOption' }
+            remark: { type: string, nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    InspectionPlanPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionPlanSummary' }
+    InspectionPlanPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionPlanPageData' } }
+    InspectionPlanDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionPlanDetail' } }
+
+    InspectionTaskSummary:
+      type: object
+      required: [id, taskNo, planId, planName, inspectorId, inspectorName, taskDate, deadlineAt, status, equipmentCount, completedEquipmentCount]
+      properties:
+        id: { type: integer, format: int64, example: 1001 }
+        taskNo: { type: string, example: IT202608270001 }
+        planId: { type: integer, format: int64, example: 1 }
+        planName: { type: string, example: A1 机房 UPS 日常巡检 }
+        inspectorId: { type: integer, format: int64, example: 2 }
+        inspectorName: { type: string, example: 张巡检 }
+        taskDate: { type: string, format: date, example: '2026-08-27' }
+        deadlineAt: { type: string, format: date-time, example: '2026-08-27T18:00:00+08:00' }
+        status: { $ref: '#/components/schemas/InspectionTaskStatus' }
+        equipmentCount: { type: integer, example: 2 }
+        completedEquipmentCount: { type: integer, example: 0 }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+    TaskInspectionItem:
+      type: object
+      required: [inspectionItemId, itemCode, itemName, standardDescription, resultType, required]
+      properties:
+        inspectionItemId: { type: integer, format: int64, example: 1 }
+        itemCode: { type: string, example: UPS-VOLTAGE }
+        itemName: { type: string, example: 输出电压 }
+        checkMethod: { type: string }
+        standardDescription: { type: string }
+        resultType: { $ref: '#/components/schemas/InspectionResultType' }
+        unit: { type: string, nullable: true }
+        minValue: { type: number, format: double, nullable: true }
+        maxValue: { type: number, format: double, nullable: true }
+        required: { type: boolean, example: true }
+    TaskEquipment:
+      type: object
+      required: [equipmentId, equipmentCode, equipmentName, areaName, status, inspectionItems]
+      properties:
+        equipmentId: { type: integer, format: int64, example: 1 }
+        equipmentCode: { type: string, example: UPS-A1-001 }
+        equipmentName: { type: string, example: A1 机房 1 号 UPS }
+        areaName: { type: string, example: A 栋一层机房 }
+        status: { $ref: '#/components/schemas/EquipmentStatus' }
+        inspectionItems:
+          type: array
+          items: { $ref: '#/components/schemas/TaskInspectionItem' }
+    InspectionTaskDetail:
+      allOf:
+        - $ref: '#/components/schemas/InspectionTaskSummary'
+        - type: object
+          required: [equipment]
+          properties:
+            equipment:
+              type: array
+              items: { $ref: '#/components/schemas/TaskEquipment' }
+            cancelReason: { type: string, nullable: true }
+            createdAt: { type: string, format: date-time }
+    InspectionTaskPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionTaskSummary' }
+    InspectionTaskPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionTaskPageData' } }
+    InspectionTaskDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionTaskDetail' } }
+
+    InspectionItemResultRequest:
+      type: object
+      required: [inspectionItemId, resultValue, normal]
+      properties:
+        inspectionItemId: { type: integer, format: int64, example: 1 }
+        resultValue: { type: string, maxLength: 500, description: 按项目类型保存 true/false、数值或文本, example: '220.5' }
+        normal: { type: boolean, example: true }
+        remark: { type: string, maxLength: 500 }
+    FaultReportRequest:
+      type: object
+      required: [faultType, faultLevel, description]
+      properties:
+        faultType: { type: string, maxLength: 50, example: 电气故障 }
+        faultLevel: { $ref: '#/components/schemas/FaultLevel' }
+        description: { type: string, maxLength: 1000, example: UPS 输出电压持续低于标准范围 }
+        imageUrls:
+          type: array
+          maxItems: 9
+          items: { type: string, format: uri }
+    EquipmentInspectionResultRequest:
+      type: object
+      required: [equipmentId, normal, itemResults]
+      description: normal 为 false 时 fault 必填。
+      properties:
+        equipmentId: { type: integer, format: int64, example: 1 }
+        normal: { type: boolean, example: false }
+        remark: { type: string, maxLength: 500 }
+        imageUrls:
+          type: array
+          maxItems: 9
+          items: { type: string, format: uri }
+        itemResults:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/InspectionItemResultRequest' }
+        fault:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FaultReportRequest'
+    InspectionTaskSubmitRequest:
+      type: object
+      required: [equipmentResults]
+      properties:
+        equipmentResults:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/EquipmentInspectionResultRequest' }
+    InspectionSubmitData:
+      type: object
+      required: [inspectionTaskId, inspectionRecordIds, faultRecordIds, workOrderIds]
+      properties:
+        inspectionTaskId: { type: integer, format: int64, example: 1001 }
+        inspectionRecordIds:
+          type: array
+          items: { type: integer, format: int64 }
+          example: [2001, 2002]
+        faultRecordIds:
+          type: array
+          items: { type: integer, format: int64 }
+          example: [3001]
+        workOrderIds:
+          type: array
+          items: { type: integer, format: int64 }
+          example: [4001]
+    InspectionSubmitResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionSubmitData' } }
+    ReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500, example: 设备已临时停用 }
+    RemarkRequest:
+      type: object
+      properties:
+        remark: { type: string, maxLength: 500, example: 已收到驳回意见，开始返工 }
+
+    InspectionRecordSummary:
+      type: object
+      required: [id, taskId, taskNo, equipmentId, equipmentCode, equipmentName, inspectorId, inspectorName, normal, completedAt]
+      properties:
+        id: { type: integer, format: int64, example: 2001 }
+        taskId: { type: integer, format: int64, example: 1001 }
+        taskNo: { type: string, example: IT202608270001 }
+        equipmentId: { type: integer, format: int64, example: 1 }
+        equipmentCode: { type: string, example: UPS-A1-001 }
+        equipmentName: { type: string, example: A1 机房 1 号 UPS }
+        inspectorId: { type: integer, format: int64, example: 2 }
+        inspectorName: { type: string, example: 张巡检 }
+        normal: { type: boolean, example: false }
+        completedAt: { type: string, format: date-time }
+    InspectionItemResult:
+      type: object
+      required: [inspectionItemId, itemCode, itemName, resultType, resultValue, normal]
+      properties:
+        inspectionItemId: { type: integer, format: int64, example: 1 }
+        itemCode: { type: string, example: UPS-VOLTAGE }
+        itemName: { type: string, example: 输出电压 }
+        resultType: { $ref: '#/components/schemas/InspectionResultType' }
+        standardDescription: { type: string }
+        resultValue: { type: string, example: '198.2' }
+        unit: { type: string, nullable: true, example: V }
+        normal: { type: boolean, example: false }
+        remark: { type: string, nullable: true }
+    InspectionRecordDetail:
+      allOf:
+        - $ref: '#/components/schemas/InspectionRecordSummary'
+        - type: object
+          required: [itemResults, imageUrls]
+          properties:
+            areaName: { type: string, example: A 栋一层机房 }
+            remark: { type: string, nullable: true }
+            imageUrls:
+              type: array
+              items: { type: string, format: uri }
+            itemResults:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionItemResult' }
+            faultRecordId: { type: integer, format: int64, nullable: true, example: 3001 }
+    InspectionRecordPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/InspectionRecordSummary' }
+    InspectionRecordPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionRecordPageData' } }
+    InspectionRecordDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/InspectionRecordDetail' } }
+
+    FaultRecordSummary:
+      type: object
+      required: [id, faultNo, equipmentId, equipmentCode, equipmentName, faultType, faultLevel, status, reporterId, reporterName, reportedAt]
+      properties:
+        id: { type: integer, format: int64, example: 3001 }
+        faultNo: { type: string, example: FR202608270001 }
+        equipmentId: { type: integer, format: int64, example: 1 }
+        equipmentCode: { type: string, example: UPS-A1-001 }
+        equipmentName: { type: string, example: A1 机房 1 号 UPS }
+        faultType: { type: string, example: 电气故障 }
+        faultLevel: { $ref: '#/components/schemas/FaultLevel' }
+        status: { $ref: '#/components/schemas/FaultStatus' }
+        reporterId: { type: integer, format: int64, example: 2 }
+        reporterName: { type: string, example: 张巡检 }
+        reportedAt: { type: string, format: date-time }
+        workOrderId: { type: integer, format: int64, nullable: true, example: 4001 }
+        workOrderNo: { type: string, nullable: true, example: WO202608270001 }
+    FaultRecordDetail:
+      allOf:
+        - $ref: '#/components/schemas/FaultRecordSummary'
+        - type: object
+          required: [description, imageUrls]
+          properties:
+            inspectionTaskId: { type: integer, format: int64, example: 1001 }
+            inspectionTaskNo: { type: string, example: IT202608270001 }
+            inspectionRecordId: { type: integer, format: int64, example: 2001 }
+            areaName: { type: string, example: A 栋一层机房 }
+            description: { type: string, example: UPS 输出电压持续低于标准范围 }
+            imageUrls:
+              type: array
+              items: { type: string, format: uri }
+            resolvedAt: { type: string, format: date-time, nullable: true }
+            closedAt: { type: string, format: date-time, nullable: true }
+    FaultRecordPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/FaultRecordSummary' }
+    FaultRecordPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/FaultRecordPageData' } }
+    FaultRecordDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/FaultRecordDetail' } }
+
+    WorkOrderAssignRequest:
+      type: object
+      required: [maintainerId, dueAt]
+      properties:
+        maintainerId: { type: integer, format: int64, example: 3 }
+        dueAt: { type: string, format: date-time, example: '2026-08-28T18:00:00+08:00' }
+        remark: { type: string, maxLength: 500, example: 请优先处理核心机房设备 }
+    WorkOrderResultSubmitRequest:
+      type: object
+      required: [solution, resultDescription]
+      properties:
+        solution: { type: string, maxLength: 1000, example: 更换稳压模块并重新校准 }
+        resultDescription: { type: string, maxLength: 1000, example: 输出电压恢复到 220V，连续运行测试正常 }
+        imageUrls:
+          type: array
+          minItems: 1
+          maxItems: 9
+          items: { type: string, format: uri }
+    WorkOrderVerifyRequest:
+      type: object
+      required: [passed, remark]
+      properties:
+        passed: { type: boolean, example: true }
+        remark: { type: string, minLength: 1, maxLength: 500, example: 现场复测正常，验收通过 }
+    WorkOrderSummary:
+      type: object
+      required: [id, workOrderNo, faultRecordId, equipmentId, equipmentCode, equipmentName, priority, status, createdAt]
+      properties:
+        id: { type: integer, format: int64, example: 4001 }
+        workOrderNo: { type: string, example: WO202608270001 }
+        faultRecordId: { type: integer, format: int64, example: 3001 }
+        equipmentId: { type: integer, format: int64, example: 1 }
+        equipmentCode: { type: string, example: UPS-A1-001 }
+        equipmentName: { type: string, example: A1 机房 1 号 UPS }
+        priority: { $ref: '#/components/schemas/WorkOrderPriority' }
+        status: { $ref: '#/components/schemas/WorkOrderStatus' }
+        maintainerId: { type: integer, format: int64, nullable: true, example: 3 }
+        maintainerName: { type: string, nullable: true, example: 李维修 }
+        dueAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    WorkOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/WorkOrderSummary'
+        - type: object
+          properties:
+            areaName: { type: string, example: A 栋一层机房 }
+            faultType: { type: string, example: 电气故障 }
+            faultDescription: { type: string }
+            faultImageUrls:
+              type: array
+              items: { type: string, format: uri }
+            assignedAt: { type: string, format: date-time, nullable: true }
+            acceptedAt: { type: string, format: date-time, nullable: true }
+            solution: { type: string, nullable: true }
+            resultDescription: { type: string, nullable: true }
+            resultImageUrls:
+              type: array
+              items: { type: string, format: uri }
+            submittedAt: { type: string, format: date-time, nullable: true }
+            verifierId: { type: integer, format: int64, nullable: true }
+            verifierName: { type: string, nullable: true }
+            verificationPassed: { type: boolean, nullable: true }
+            verificationRemark: { type: string, nullable: true }
+            verifiedAt: { type: string, format: date-time, nullable: true }
+            completedAt: { type: string, format: date-time, nullable: true }
+            cancelledAt: { type: string, format: date-time, nullable: true }
+            cancelReason: { type: string, nullable: true }
+            updatedAt: { type: string, format: date-time }
+    WorkOrderPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/WorkOrderSummary' }
+    WorkOrderPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/WorkOrderPageData' } }
+    WorkOrderDetailResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/WorkOrderDetail' } }
+    WorkOrderOperation:
+      type: object
+      required: [id, workOrderId, operationType, operatorId, operatorName, operatedAt]
+      properties:
+        id: { type: integer, format: int64, example: 5001 }
+        workOrderId: { type: integer, format: int64, example: 4001 }
+        operationType: { $ref: '#/components/schemas/WorkOrderOperationType' }
+        fromStatus:
+          type: string
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WorkOrderStatus'
+        toStatus:
+          type: string
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WorkOrderStatus'
+        operatorId: { type: integer, format: int64, example: 1 }
+        operatorName: { type: string, example: 系统管理员 }
+        remark: { type: string, nullable: true }
+        operatedAt: { type: string, format: date-time }
+    WorkOrderOperationListResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/WorkOrderOperation' }
+
+    NotificationSummary:
+      type: object
+      required: [id, type, title, content, read, createdAt]
+      properties:
+        id: { type: integer, format: int64, example: 6001 }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        title: { type: string, example: 您有一张新的维修工单 }
+        content: { type: string, example: 工单 WO202608270001 已派发给您，请及时处理 }
+        relatedBizId: { type: integer, format: int64, nullable: true, example: 4001 }
+        relatedBizType: { type: string, nullable: true, example: WORK_ORDER }
+        read: { type: boolean, example: false }
+        readAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+    NotificationPageData:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            records:
+              type: array
+              items: { $ref: '#/components/schemas/NotificationSummary' }
+    NotificationPageResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/NotificationPageData' } }
+    UnreadCountData:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer, format: int64, example: 5 }
+    UnreadCountResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/UnreadCountData' } }
+
+    FileUploadData:
+      type: object
+      required: [objectKey, url, originalName, contentType, size]
+      properties:
+        objectKey: { type: string, example: fault/2026/08/27/4f53a9f0.webp }
+        url: { type: string, format: uri, example: 'http://localhost:9000/smart-inspection/fault/2026/08/27/4f53a9f0.webp' }
+        originalName: { type: string, example: fault-scene.webp }
+        contentType: { type: string, example: image/webp }
+        size: { type: integer, format: int64, description: 字节数, example: 235620 }
+    FileUploadResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/FileUploadData' } }
+
+    DashboardStatistics:
+      type: object
+      required: [todayPendingInspectionCount, todayCompletedInspectionCount, abnormalEquipmentCount, pendingWorkOrderCount, urgentWorkOrderCount, workOrderCompletionRate]
+      properties:
+        equipmentTotalCount: { type: integer, format: int64, nullable: true, example: 1248 }
+        todayPendingInspectionCount: { type: integer, format: int64, example: 18 }
+        todayCompletedInspectionCount: { type: integer, format: int64, example: 68 }
+        abnormalEquipmentCount: { type: integer, format: int64, example: 12 }
+        pendingWorkOrderCount: { type: integer, format: int64, example: 9 }
+        urgentWorkOrderCount: { type: integer, format: int64, example: 2 }
+        workOrderCompletionRate: { type: number, format: double, description: 百分比，0 至 100, example: 92.5 }
+    DashboardStatisticsResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties: { data: { $ref: '#/components/schemas/DashboardStatistics' } }
+    WorkOrderTrendPoint:
+      type: object
+      required: [period, createdCount, completedCount]
+      properties:
+        period: { type: string, example: '2026-08-27' }
+        createdCount: { type: integer, format: int64, example: 12 }
+        completedCount: { type: integer, format: int64, example: 10 }
+    WorkOrderTrendResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/WorkOrderTrendPoint' }
+    FaultDistributionItem:
+      type: object
+      required: [faultLevel, count, ratio]
+      properties:
+        faultLevel: { $ref: '#/components/schemas/FaultLevel' }
+        count: { type: integer, format: int64, example: 8 }
+        ratio: { type: number, format: double, description: 百分比, example: 25.0 }
+    FaultDistributionResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/FaultDistributionItem' }
+    EquipmentStatusDistributionItem:
+      type: object
+      required: [status, count, ratio]
+      properties:
+        status: { $ref: '#/components/schemas/EquipmentStatus' }
+        count: { type: integer, format: int64, example: 1200 }
+        ratio: { type: number, format: double, description: 百分比, example: 96.15 }
+    EquipmentStatusDistributionResult:
+      allOf:
+        - $ref: '#/components/schemas/ResultBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/EquipmentStatusDistributionItem' }

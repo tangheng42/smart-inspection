@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhixunyun.mapper.WorkOrderMapper">
+    <select id="pageQuery" resultType="com.zhixunyun.vo.WorkOrderVO">
+        select w.id, w.work_order_no, w.fault_record_id, w.equipment_id,
+               e.code as equipment_code, e.name as equipment_name,
+               w.priority, w.status, w.maintainer_id,
+               u.display_name as maintainer_name, w.due_at, w.created_at
+        from work_order w
+        join equipment e on e.id = w.equipment_id
+        left join sys_user u on u.id = w.maintainer_id
+        <where>
+            <if test="workOrderNo != null">and w.work_order_no like concat('%', #{workOrderNo}, '%')</if>
+            <if test="equipmentId != null">and w.equipment_id = #{equipmentId}</if>
+            <if test="maintainerId != null">and w.maintainer_id = #{maintainerId}</if>
+            <if test="priority != null">and w.priority = #{priority}</if>
+            <if test="status != null">and w.status = #{status}</if>
+            <if test="createdFrom != null">and w.created_at &gt;= #{createdFrom}</if>
+            <if test="createdTo != null">and w.created_at &lt; date_add(#{createdTo}, interval 1 day)</if>
+        </where>
+        order by w.created_at desc, w.id desc
+    </select>
+
+    <select id="getDetailById" resultType="com.zhixunyun.vo.WorkOrderDetailVO">
+        select w.id, w.work_order_no, w.fault_record_id, w.equipment_id,
+               e.code as equipment_code, e.name as equipment_name, a.name as area_name,
+               w.priority, w.status, w.maintainer_id, m.display_name as maintainer_name,
+               w.due_at, w.created_at, f.fault_type, f.description as fault_description,
+               w.assigned_at, w.accepted_at, w.solution, w.result_description,
+               w.submitted_at, w.verifier_id, v.display_name as verifier_name,
+               w.verification_passed, w.verification_remark, w.verified_at,
+               w.completed_at, w.cancelled_at, w.cancel_reason, w.updated_at
+        from work_order w
+        join fault_record f on f.id = w.fault_record_id
+        join equipment e on e.id = w.equipment_id
+        join area a on a.id = e.area_id
+        left join sys_user m on m.id = w.maintainer_id
+        left join sys_user v on v.id = w.verifier_id
+        where w.id = #{workOrderId}
+    </select>
+
+    <select id="getMaintainerId" resultType="long">
+        select maintainer_id from work_order where id = #{workOrderId}
+    </select>
+
+    <select id="listFaultImageUrls" resultType="string">
+        select f.url from work_order w
+        join biz_attachment b on b.biz_type = 'FAULT' and b.biz_id = w.fault_record_id
+        join file_object f on f.id = b.file_id
+        where w.id = #{workOrderId}
+        order by b.sort_no, b.id
+    </select>
+
+    <select id="listResultImageUrls" resultType="string">
+        select f.url from biz_attachment b join file_object f on f.id = b.file_id
+        where b.biz_type = 'REPAIR' and b.biz_id = #{workOrderId}
+        order by b.sort_no, b.id
+    </select>
+
+    <select id="listOperations" resultType="com.zhixunyun.vo.WorkOrderOperationVO">
+        select id, work_order_id, operation_type, from_status, to_status,
+               operator_id, operator_name, remark, operated_at
+        from work_order_operation
+        where work_order_id = #{workOrderId}
+        order by operated_at asc, id asc
+    </select>
+
+    <select id="existsById" resultType="boolean">
+        select exists(select 1 from work_order where id = #{workOrderId})
+    </select>
+
+    <insert id="insert" parameterType="com.zhixunyun.entity.WorkOrder"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into work_order
+            (work_order_no, fault_record_id, equipment_id, priority, status)
+        values
+            (#{workOrderNo}, #{faultRecordId}, #{equipmentId}, #{priority}, #{status})
+    </insert>
+
+    <insert id="insertOperation" parameterType="com.zhixunyun.entity.WorkOrderOperation">
+        insert into work_order_operation
+            (work_order_id, operation_type, from_status, to_status,
+             operator_id, operator_name, remark, operated_at)
+        values
+            (#{workOrderId}, #{operationType}, #{fromStatus}, #{toStatus},
+             #{operatorId}, #{operatorName}, #{remark}, #{operatedAt})
+    </insert>
+
+    <select id="getById"
+            resultType="com.zhixunyun.entity.WorkOrder">
+        select id,
+        work_order_no,
+        fault_record_id,
+        equipment_id,
+        priority,
+        status,
+        maintainer_id,
+        due_at,
+        assigned_at
+        , accepted_at
+        , solution
+        , result_description
+        , submitted_at
+        , verifier_id
+        , verification_passed
+        , verification_remark
+        , verified_at
+        , completed_at
+        , cancelled_at
+        , cancel_reason
+        , version
+        from work_order
+        where id = #{workOrderId}
+    </select>
+
+    <!-- 旧状态和版本同时匹配，管理员并发派单时只有一方能更新。 -->
+    <update id="assign">
+        update work_order
+        set maintainer_id = #{maintainerId},
+        due_at = #{dueAt},
+        assigned_at = #{assignedAt},
+        status = 'PENDING_ACCEPTANCE',
+        version = version + 1
+        where id = #{workOrderId}
+        and status = #{currentStatus}
+        and version = #{version}
+    </update>
+
+    <!-- 指派人、旧状态、版本共同约束接单；0 行表示已改派或状态已变化。 -->
+    <update id="accept">
+        update work_order
+        set status = 'PROCESSING', accepted_at = #{acceptedAt}, version = version + 1
+        where id = #{workOrderId}
+          and maintainer_id = #{maintainerId}
+          and status = 'PENDING_ACCEPTANCE'
+          and version = #{version}
+    </update>
+
+    <update id="submitResult">
+        update work_order
+        set status = 'PENDING_VERIFICATION',
+            solution = #{solution},
+            result_description = #{resultDescription},
+            submitted_at = #{submittedAt},
+            version = version + 1
+        where id = #{workOrderId}
+          and maintainer_id = #{maintainerId}
+          and status = 'PROCESSING'
+          and version = #{version}
+    </update>
+
+    <!-- 验收只接受待验收版本；维修员并发提交或重复验收时不会覆盖结果。 -->
+    <update id="verify">
+        update work_order
+        set status = #{toStatus},
+            verifier_id = #{verifierId},
+            verification_passed = #{passed},
+            verification_remark = #{remark},
+            verified_at = #{verifiedAt},
+            completed_at = case when #{passed} = true then #{verifiedAt} else null end,
+            version = version + 1
+        where id = #{workOrderId}
+          and status = 'PENDING_VERIFICATION'
+          and version = #{version}
+    </update>
+
+    <update id="rework">
+        update work_order
+        set status = 'PROCESSING', version = version + 1
+        where id = #{workOrderId}
+          and maintainer_id = #{maintainerId}
+          and status = 'REJECTED'
+          and version = #{version}
+    </update>
+
+    <update id="cancel">
+        update work_order
+        set status = 'CANCELLED',
+            cancelled_at = #{cancelledAt},
+            cancel_reason = #{reason},
+            version = version + 1
+        where id = #{workOrderId}
+          and status in ('PENDING_ASSIGNMENT', 'PENDING_ACCEPTANCE')
+          and version = #{version}
+    </update>
+</mapper>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhixunyun.mapper.OperationLogMapper">
+    <insert id="insert" parameterType="com.zhixunyun.entity.SysOperationLog">
+        insert into sys_operation_log
+            (trace_id, operator_id, operator_name, operation_name, business_type,
+             request_method, request_uri, java_method, request_params, success,
+             error_message, duration_ms, ip_address)
+        values
+            (#{traceId}, #{operatorId}, #{operatorName}, #{operationName},
+             #{businessType}, #{requestMethod}, #{requestUri}, #{javaMethod},
+             #{requestParams}, #{success}, #{errorMessage}, #{durationMs},
+             #{ipAddress})
+    </insert>
+</mapper>

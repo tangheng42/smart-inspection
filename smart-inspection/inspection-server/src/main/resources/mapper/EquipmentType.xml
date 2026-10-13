@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.zhixunyun.mapper.EquipmentTypeMapper">
+
+    <!-- 分页查询。两个一对多表同时关联时必须使用 distinct，避免笛卡尔积导致数量翻倍。 -->
+    <select id="pageQuery"
+            resultType="com.zhixunyun.vo.EquipmentTypeVO">
+
+        select
+            et.id,
+            et.code,
+            et.name,
+            et.enabled,
+            count(distinct e.id) as equipment_count,
+            count(distinct ii.id) as inspection_item_count,
+            et.created_at
+        from equipment_type et
+        left join equipment e on e.equipment_type_id = et.id
+        left join inspection_item ii on ii.equipment_type_id = et.id
+
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (
+                    et.code like concat('%', #{keyword}, '%')
+                    or et.name like concat('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="enabled != null">
+                and et.enabled = #{enabled}
+            </if>
+        </where>
+
+        group by
+            et.id,
+            et.code,
+            et.name,
+            et.enabled,
+            et.created_at
+
+        order by et.created_at desc, et.id desc
+    </select>
+
+    <select id="getByCode"
+            resultType="com.zhixunyun.entity.EquipmentType">
+        select id, code, name, description, enabled, created_at, updated_at
+        from equipment_type
+        where code = #{code}
+    </select>
+
+    <select id="getById"
+            resultType="com.zhixunyun.entity.EquipmentType">
+        select id, code, name, description, enabled, created_at, updated_at
+        from equipment_type
+        where id = #{equipmentTypeId}
+    </select>
+
+    <insert id="insert"
+            parameterType="com.zhixunyun.entity.EquipmentType"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        insert into equipment_type (
+            code,
+            name,
+            description,
+            enabled
+        ) values (
+            #{code},
+            #{name},
+            #{description},
+            #{enabled}
+        )
+    </insert>
+
+    <select id="listOptions"
+            resultType="com.zhixunyun.vo.EquipmentTypeOptionVO">
+        select id, code, name
+        from equipment_type
+        where enabled = 1
+        <if test="keyword != null and keyword != ''">
+            and (
+                code like concat('%', #{keyword}, '%')
+                or name like concat('%', #{keyword}, '%')
+            )
+        </if>
+        order by name, id
+    </select>
+
+    <select id="getDetailById"
+            resultType="com.zhixunyun.vo.EquipmentTypeDetailVO">
+        select
+            et.id,
+            et.code,
+            et.name,
+            et.description,
+            et.enabled,
+            count(distinct e.id) as equipment_count,
+            count(distinct ii.id) as inspection_item_count,
+            et.created_at,
+            et.updated_at
+        from equipment_type et
+        left join equipment e on e.equipment_type_id = et.id
+        left join inspection_item ii on ii.equipment_type_id = et.id
+        where et.id = #{equipmentTypeId}
+        group by
+            et.id,
+            et.code,
+            et.name,
+            et.description,
+            et.enabled,
+            et.created_at,
+            et.updated_at
+    </select>
+
+    <update id="update"
+            parameterType="com.zhixunyun.entity.EquipmentType">
+        update equipment_type
+        set code = #{code},
+            name = #{name},
+            description = #{description}
+        where id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        update equipment_type
+        set enabled = #{enabled}
+        where id = #{equipmentTypeId}
+    </update>
+
+    <select id="countEnabledEquipment" resultType="int">
+        select count(*)
+        from equipment
+        where equipment_type_id = #{equipmentTypeId}
+          and status != 'DISABLED'
+    </select>
+</mapper>

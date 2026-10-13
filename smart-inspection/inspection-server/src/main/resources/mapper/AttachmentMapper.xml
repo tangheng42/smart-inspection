@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhixunyun.mapper.AttachmentMapper">
+    <select id="findFilesByUrls" resultType="com.zhixunyun.vo.FileReferenceVO">
+        select id, url from file_object
+        where url in
+        <foreach collection="urls" item="url" open="(" separator="," close=")">
+            #{url}
+        </foreach>
+        and uploader_id = #{uploaderId}
+    </select>
+
+    <insert id="insert" parameterType="com.zhixunyun.entity.BizAttachment">
+        insert into biz_attachment (file_id, biz_type, biz_id, sort_no)
+        values (#{fileId}, #{bizType}, #{bizId}, #{sortNo})
+    </insert>
+
+    <insert id="insertFile" parameterType="com.zhixunyun.entity.FileObject"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into file_object
+            (bucket_name, object_key, url, original_name, content_type, size_bytes, uploader_id)
+        values
+            (#{bucketName}, #{objectKey}, #{url}, #{originalName}, #{contentType}, #{sizeBytes}, #{uploaderId})
+    </insert>
+
+</mapper>

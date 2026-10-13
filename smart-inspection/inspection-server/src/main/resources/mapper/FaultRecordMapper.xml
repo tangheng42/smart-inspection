@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhixunyun.mapper.FaultRecordMapper">
+    <!-- 服务层按角色覆盖 reporterId 或 maintainerId；巡检员看本人上报，
+         维修员只看关联工单已指派给自己的故障。 -->
+    <select id="pageQuery" resultType="com.zhixunyun.vo.FaultRecordVO">
+        select f.id, f.fault_no, f.equipment_id, e.code as equipment_code,
+               e.name as equipment_name, f.fault_type, f.fault_level,
+               f.status, f.reporter_id, u.display_name as reporter_name,
+               f.reported_at, w.id as work_order_id, w.work_order_no
+        from fault_record f
+        join equipment e on e.id = f.equipment_id
+        join sys_user u on u.id = f.reporter_id
+        left join work_order w on w.fault_record_id = f.id
+        <where>
+            <if test="faultNo != null">and f.fault_no like concat('%', #{faultNo}, '%')</if>
+            <if test="equipmentId != null">and f.equipment_id = #{equipmentId}</if>
+            <if test="faultLevel != null">and f.fault_level = #{faultLevel}</if>
+            <if test="status != null">and f.status = #{status}</if>
+            <if test="reportedFrom != null">and f.reported_at &gt;= #{reportedFrom}</if>
+            <if test="reportedTo != null">and f.reported_at &lt; date_add(#{reportedTo}, interval 1 day)</if>
+            <if test="reporterId != null">and f.reporter_id = #{reporterId}</if>
+            <if test="maintainerId != null">and w.maintainer_id = #{maintainerId}</if>
+        </where>
+        order by f.reported_at desc, f.id desc
+    </select>
+
+    <select id="getDetailById" resultType="com.zhixunyun.vo.FaultRecordDetailVO">
+        select f.id, f.fault_no, f.inspection_task_id, t.task_no as inspection_task_no,
+               f.inspection_record_id, f.equipment_id, e.code as equipment_code,
+               e.name as equipment_name, a.name as area_name, f.reporter_id,
+               u.display_name as reporter_name, f.fault_type, f.fault_level,
+               f.description, f.status, f.reported_at, f.resolved_at, f.closed_at,
+               w.id as work_order_id, w.work_order_no
+        from fault_record f
+        join inspection_task t on t.id = f.inspection_task_id
+        join equipment e on e.id = f.equipment_id
+        join area a on a.id = e.area_id
+        join sys_user u on u.id = f.reporter_id
+        left join work_order w on w.fault_record_id = f.id
+        where f.id = #{faultRecordId}
+    </select>
+
+    <!-- 详情按 ID 获取后仍校验是否存在指派给当前维修员的关联工单。 -->
+    <select id="maintainerCanAccess" resultType="boolean">
+        select exists(select 1 from work_order
+                      where fault_record_id = #{faultRecordId}
+                        and maintainer_id = #{maintainerId})
+    </select>
+
+    <select id="listImageUrls" resultType="string">
+        select f.url from biz_attachment b join file_object f on f.id = b.file_id
+        where b.biz_type = 'FAULT' and b.biz_id = #{faultRecordId}
+        order by b.sort_no, b.id
+    </select>
+
+    <insert id="insert" parameterType="com.zhixunyun.entity.FaultRecord"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into fault_record
+            (fault_no, inspection_task_id, inspection_record_id, equipment_id,
+             reporter_id, fault_type, fault_level, description, status, reported_at)
+        values
+            (#{faultNo}, #{inspectionTaskId}, #{inspectionRecordId}, #{equipmentId},
+             #{reporterId}, #{faultType}, #{faultLevel}, #{description}, #{status}, #{reportedAt})
+    </insert>
+
+    <update id="markProcessing">
+        update fault_record
+        set status = 'PROCESSING', version = version + 1
+        where id = #{faultRecordId} and status in ('ORDER_CREATED', 'PROCESSING')
+    </update>
+
+    <update id="close">
+        update fault_record
+        set status = 'CLOSED', resolved_at = #{closedAt}, closed_at = #{closedAt},
+            version = version + 1
+        where id = #{faultRecordId} and status in ('ORDER_CREATED', 'PROCESSING', 'RESOLVED')
+    </update>
+</mapper>

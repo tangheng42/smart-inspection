@@ -1,0 +1,84 @@
+spring:
+  application:
+    name: inspection-server
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/smart_inspection?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&sslMode=DISABLED&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:}
+    password: ${RABBITMQ_PASSWORD:}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
+
+zhixunyun:
+  jwt:
+    secret-key: ${JWT_SECRET_KEY}
+    ttl: 7200000
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    public-url: ${MINIO_PUBLIC_URL:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY}
+    secret-key: ${MINIO_SECRET_KEY}
+    bucket-name: ${MINIO_BUCKET:smart-inspection}
+    public-read: ${MINIO_PUBLIC_READ:true}
+  redis:
+    enabled: ${ZHIXUNYUN_REDIS_ENABLED:true}
+    option-ttl: ${ZHIXUNYUN_REDIS_OPTION_TTL:30m}
+  rabbitmq:
+    enabled: ${ZHIXUNYUN_RABBITMQ_ENABLED:false}
+    exchange: zhixunyun.notification.exchange
+    queue: zhixunyun.notification.websocket.queue
+    routing-key: notification.websocket
+  task:
+    enabled: ${INSPECTION_TASK_SCHEDULER_ENABLED:true}
+    generate-cron: ${INSPECTION_TASK_GENERATE_CRON:0/30 * * * * ?}
+    overdue-cron: ${INSPECTION_TASK_OVERDUE_CRON:0 0/5 * * * ?}
+  operation-log:
+    enabled: ${OPERATION_LOG_ENABLED:true}
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  packages-to-scan: com.zhixunyun.controller
+  paths-to-match: /api/**
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    disable-swagger-default-url: true
+    tags-sorter: alpha
+    operations-sorter: method
+    urls-primary-name: 01-完整接口契约（含规划中接口）
+    urls:
+      - name: 01-完整接口契约（含规划中接口）
+        url: /openapi/zhixunyun-openapi.json
+      - name: 02-当前已实现接口
+        url: /v3/api-docs
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+

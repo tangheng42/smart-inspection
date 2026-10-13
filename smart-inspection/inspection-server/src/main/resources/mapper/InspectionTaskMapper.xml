@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.zhixunyun.mapper.InspectionTaskMapper">
+
+    <!-- 巡检员的 inspectorId 由服务层覆盖为当前用户，避免请求参数指定他人。 -->
+<select id="pageQuery"
+        resultType="com.zhixunyun.vo.InspectionTaskPageVO">
+
+    select
+    id,
+    task_no as taskNo,
+    plan_id as planId,
+    plan_name_snapshot as planName,
+    inspector_id as inspectorId,
+    inspector_name_snapshot as inspectorName,
+    task_date as taskDate,
+    deadline_at as deadlineAt,
+    status,
+    equipment_count as equipmentCount,
+    completed_equipment_count as completedEquipmentCount,
+    started_at as startedAt,
+    completed_at as completedAt
+    from inspection_task
+
+    <where>
+
+        <if test="taskNo != null and taskNo != ''">
+            and task_no like concat('%', #{taskNo}, '%')
+        </if>
+
+        <if test="inspectorId != null">
+            and inspector_id = #{inspectorId}
+        </if>
+
+        <if test="status != null">
+            and status = #{status}
+        </if>
+
+        <if test="taskDateFrom != null">
+            and task_date <![CDATA[ >= ]]> #{taskDateFrom}
+        </if>
+
+        <if test="taskDateTo != null">
+            and task_date <![CDATA[ <= ]]> #{taskDateTo}
+        </if>
+
+    </where>
+
+    order by task_date desc, id desc
+
+</select>
+
+    <!-- 今日任务始终按当前登录巡检员和任务日期过滤。 -->
+       <select id="pageToday"
+            resultType="com.zhixunyun.vo.InspectionTaskPageVO">
+
+        select
+        id,
+        task_no as taskNo,
+        plan_id as planId,
+        plan_name_snapshot as planName,
+        inspector_id as inspectorId,
+        inspector_name_snapshot as inspectorName,
+        task_date as taskDate,
+        deadline_at as deadlineAt,
+        status,
+        equipment_count as equipmentCount,
+        completed_equipment_count as completedEquipmentCount,
+        started_at as startedAt,
+        completed_at as completedAt
+        from inspection_task
+        where inspector_id = #{inspectorId}
+        and task_date = #{taskDate}
+
+        <if test="status != null">
+            and status = #{status}
+        </if>
+
+        order by id desc
+
+    </select>
+
+    <!-- 根据任务ID查询巡检任务详情 -->
+    <select id="getDetailById"
+            resultType="com.zhixunyun.vo.InspectionTaskDetailVO">
+
+        select
+        id,
+        task_no as taskNo,
+        plan_id as planId,
+        plan_name_snapshot as planName,
+        inspector_id as inspectorId,
+        inspector_name_snapshot as inspectorName,
+        task_date as taskDate,
+        deadline_at as deadlineAt,
+        status,
+        equipment_count as equipmentCount,
+        completed_equipment_count as completedEquipmentCount,
+        started_at as startedAt,
+        completed_at as completedAt,
+        cancel_reason as cancelReason,
+        created_at as createdAt
+        from inspection_task
+        where id = #{taskId}
+
+    </select>
+
+    <!-- 根据任务ID查询巡检任务设备 -->
+    <select id="getTaskEquipment"
+            resultType="com.zhixunyun.vo.TaskEquipmentVO">
+
+        select
+        equipment_id as equipmentId,
+        equipment_code_snapshot as equipmentCode,
+        equipment_name_snapshot as equipmentName,
+        area_name_snapshot as areaName,
+        equipment_status_snapshot as status
+        from inspection_task_equipment
+        where task_id = #{taskId}
+        order by id
+
+    </select>
+
+    <!-- 根据任务ID查询巡检任务项目 -->
+    <select id="getTaskItems"
+            resultType="com.zhixunyun.vo.TaskInspectionItemVO">
+
+        select
+        inspection_item_id as inspectionItemId,
+        item_code_snapshot as itemCode,
+        item_name_snapshot as itemName,
+        check_method_snapshot as checkMethod,
+        standard_description_snapshot as standardDescription,
+        result_type_snapshot as resultType,
+        unit_snapshot as unit,
+        min_value_snapshot as `minValue`,
+        max_value_snapshot as `maxValue`,
+        is_required_snapshot as `required`
+        from inspection_task_item
+        where task_id = #{taskId}
+        order by id
+
+    </select>
+    <!-- 旧状态必须为 PENDING；并发开始或取消后，后到请求更新 0 行。 -->
+    <update id="startTask">
+
+        update inspection_task
+
+        set status = 'IN_PROGRESS',
+        started_at = #{startedAt},
+        version = version + 1
+
+        where id = #{taskId}
+        and status = 'PENDING'
+
+    </update>
+
+    <select id="getStartInfoById"
+            resultType="com.zhixunyun.vo.InspectionTaskStartInfo">
+
+        select
+        id,
+        inspector_id as inspectorId,
+        status
+        from inspection_task
+        where id = #{taskId}
+
+    </select>
+
+    <update id="cancelTask">
+        update inspection_task
+        set status = 'CANCELLED', cancel_reason = #{reason}, version = version + 1
+        where id = #{taskId} and status = 'PENDING'
+    </update>
+
+    <select id="getSubmitInfoById"
+            resultType="com.zhixunyun.vo.InspectionTaskSubmitInfo">
+
+        select
+        id,
+        plan_id as planId,
+        inspector_id as inspectorId,
+        inspector_name_snapshot as inspectorName,
+        status
+        from inspection_task
+        where id = #{taskId}
+
+    </select>
+
+    <select id="getEquipmentSubmitInfoByTaskId"
+            resultType="com.zhixunyun.vo.InspectionTaskEquipmentSubmitInfo">
+
+        select id as task_equipment_id, equipment_id
+        from inspection_task_equipment
+        where task_id = #{taskId}
+
+    </select>
+
+    <!-- 抢占提交权：只有 IN_PROGRESS 可转为 COMPLETED；更新 0 行视为状态冲突。
+         该更新与记录、故障、工单写入共用事务，后续失败会回滚。 -->
+    <update id="completeTask">
+        update inspection_task
+        set status = 'COMPLETED', completed_equipment_count = #{equipmentCount},
+            completed_at = #{completedAt}, version = version + 1
+        where id = #{taskId} and status = 'IN_PROGRESS'
+    </update>
+
+    <update id="completeTaskEquipment">
+        update inspection_task_equipment
+        set completion_status = 'COMPLETED', completed_at = #{completedAt}
+        where task_id = #{taskId} and completion_status = 'PENDING'
+    </update>
+
+    <insert id="insertGeneratedTask" useGeneratedKeys="true" keyProperty="id">
+        insert into inspection_task
+            (task_no, plan_id, plan_name_snapshot, inspector_id,
+             inspector_name_snapshot, task_date, scheduled_at, deadline_at,
+             status, equipment_count)
+        values
+            (#{taskNo}, #{planId}, #{planNameSnapshot}, #{inspectorId},
+             #{inspectorNameSnapshot}, #{taskDate}, #{scheduledAt}, #{deadlineAt},
+             'PENDING', #{equipmentCount})
+    </insert>
+
+    <insert id="batchInsertGeneratedEquipment">
+        insert into inspection_task_equipment
+            (task_id, equipment_id, equipment_code_snapshot,
+             equipment_name_snapshot, equipment_type_id, area_id,
+             area_name_snapshot, equipment_status_snapshot, sort_no)
+        values
+        <foreach collection="items" item="item" separator=",">
+            (#{item.taskId}, #{item.equipmentId}, #{item.equipmentCodeSnapshot},
+             #{item.equipmentNameSnapshot}, #{item.equipmentTypeId}, #{item.areaId},
+             #{item.areaNameSnapshot}, #{item.equipmentStatusSnapshot}, #{item.sortNo})
+        </foreach>
+    </insert>
+
+    <insert id="batchInsertGeneratedItems">
+        insert into inspection_task_item
+            (task_id, inspection_item_id, item_code_snapshot, item_name_snapshot,
+             check_method_snapshot, standard_description_snapshot,
+             result_type_snapshot, unit_snapshot, min_value_snapshot,
+             max_value_snapshot, is_required_snapshot, sort_no)
+        values
+        <foreach collection="items" item="item" separator=",">
+            (#{item.taskId}, #{item.inspectionItemId}, #{item.itemCodeSnapshot},
+             #{item.itemNameSnapshot}, #{item.checkMethodSnapshot},
+             #{item.standardDescriptionSnapshot}, #{item.resultTypeSnapshot},
+             #{item.unitSnapshot}, #{item.minValueSnapshot}, #{item.maxValueSnapshot},
+             #{item.requiredSnapshot}, #{item.sortNo})
+        </foreach>
+    </insert>
+
+    <!-- 从计划关系和当前设备档案复制快照，历史任务无需再依赖档案当前名称和状态。 -->
+    <select id="listEquipmentSnapshots"
+            resultType="com.zhixunyun.entity.InspectionTaskEquipment">
+        select e.id as equipment_id,
+               e.code as equipment_code_snapshot,
+               e.name as equipment_name_snapshot,
+               e.equipment_type_id,
+               e.area_id,
+               a.name as area_name_snapshot,
+               e.status as equipment_status_snapshot,
+               row_number() over (order by e.id) as sort_no
+        from inspection_plan_equipment pe
+        inner join equipment e on e.id = pe.equipment_id
+        inner join area a on a.id = e.area_id
+        where pe.plan_id = #{planId}
+        order by e.id
+    </select>
+
+    <!-- 保留生成时项目的校验类型和阈值，计划或项目后续修改不改变任务依据。 -->
+    <select id="listItemSnapshots"
+            resultType="com.zhixunyun.entity.InspectionTaskItem">
+        select ii.id as inspection_item_id,
+               ii.code as item_code_snapshot,
+               ii.name as item_name_snapshot,
+               ii.check_method as check_method_snapshot,
+               ii.standard_description as standard_description_snapshot,
+               ii.result_type as result_type_snapshot,
+               ii.unit as unit_snapshot,
+               ii.min_value as min_value_snapshot,
+               ii.max_value as max_value_snapshot,
+               ii.is_required as required_snapshot,
+               pi.sort_no
+        from inspection_plan_item pi
+        inner join inspection_item ii on ii.id = pi.inspection_item_id
+        where pi.plan_id = #{planId}
+        order by pi.sort_no, ii.id
+    </select>
+
+    <select id="existsByPlanAndDate" resultType="int">
+        select exists(
+            select 1 from inspection_task
+            where plan_id = #{planId} and task_date = #{taskDate}
+        )
+    </select>
+
+    <!-- 只处理逾期且从未开始的任务，执行中任务保持原状态。 -->
+    <update id="markOverdue">
+        update inspection_task
+        set status = 'OVERDUE', version = version + 1
+        where status = 'PENDING' and deadline_at &lt; #{now}
+    </update>
+</mapper>

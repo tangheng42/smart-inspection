@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.zhixunyun.mapper.AreaMapper">
+
+    <!-- 分页查询区域 -->
+<select id="pageQuery"
+        resultType="com.zhixunyun.vo.AreaVO">
+
+    select
+    a.id,
+    a.code,
+    a.name,
+    a.enabled,
+    count(e.id) as equipment_count,
+    a.created_at
+    from area a
+    left join equipment e on e.area_id = a.id
+
+    <where>
+        <if test="keyword != null and keyword != ''">
+            and (
+            a.code like concat('%', #{keyword}, '%')
+            or a.name like concat('%', #{keyword}, '%')
+            )
+        </if>
+
+        <if test="enabled != null">
+            and a.enabled = #{enabled}
+        </if>
+    </where>
+
+    group by
+    a.id,
+    a.code,
+    a.name,
+    a.enabled,
+    a.created_at
+
+    order by a.created_at desc
+
+</select>
+
+    <!-- 根据编码查询区域 -->
+    <select id="getByCode"
+            resultType="com.zhixunyun.entity.Area">
+        select * from area where code = #{code}
+    </select>
+
+    <!-- 新增区域 -->
+    <insert id="insert"
+            parameterType="com.zhixunyun.entity.Area"
+            useGeneratedKeys="true"
+            keyProperty="id">
+
+        insert into area (
+        code,
+        name,
+        description,
+        enabled
+        )
+        values (
+        #{code},
+        #{name},
+        #{description},
+        #{enabled}
+        )
+
+    </insert>
+
+    <!-- 查询启用区域选项 -->
+    <select id="getAreaOptions"
+            resultType="com.zhixunyun.entity.Area">
+
+        select id, code, name
+        from area
+        where enabled = 1
+
+        <if test="keyword != null and keyword != ''">
+            and (
+            code like concat('%', #{keyword}, '%')
+            or name like concat('%', #{keyword}, '%')
+            )
+        </if>
+
+        order by name
+
+    </select>
+
+    <!-- 根据ID查询区域区域详情 -->
+    <select id="getDetailById"
+            resultType="com.zhixunyun.vo.AreaDetailVO">
+
+        select
+        a.id,
+        a.code,
+        a.name,
+        a.enabled,
+        a.description,
+        a.created_at,
+        a.updated_at,
+        count(e.id) as equipment_count
+        from area a
+        left join equipment e
+        on e.area_id = a.id
+        where a.id = #{areaId}
+        group by
+        a.id,
+        a.code,
+        a.name,
+        a.enabled,
+        a.description,
+        a.created_at,
+        a.updated_at
+
+    </select>
+
+    <!-- 根据ID查询区域 -->
+    <select id="getById"
+            resultType="com.zhixunyun.entity.Area">
+        select * from area where id = #{areaId}
+    </select>
+
+</mapper>

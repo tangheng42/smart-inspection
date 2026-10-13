@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.zhixunyun.mapper.InspectionPlanMapper">
+    <!-- 插入巡检计划 -->
+    <insert id="insert"
+            useGeneratedKeys="true"
+            keyProperty="id">
+
+        insert into inspection_plan (
+        name,
+        inspector_id,
+        frequency_type,
+        execution_time,
+        start_date,
+        end_date,
+        deadline_hours,
+        enabled,
+        next_generate_at,
+        remark
+        )
+        values (
+        #{name},
+        #{inspectorId},
+        #{frequencyType},
+        #{executionTime},
+        #{startDate},
+        #{endDate},
+        #{deadlineHours},
+        #{enabled},
+        #{nextGenerateAt},
+        #{remark}
+        )
+
+    </insert>
+    <!-- 批量插入设备 -->
+    <insert id="batchInsertEquipment">
+        insert into inspection_plan_equipment (
+        plan_id,
+        equipment_id
+        )
+        values
+        <foreach collection="equipmentIds"
+                 item="equipmentId"
+                 separator=",">
+            (
+            #{planId},
+            #{equipmentId}
+            )
+        </foreach>
+    </insert>
+    <!-- 批量插入项目 -->
+    <insert id="batchInsertItems">
+        insert into inspection_plan_item (
+        plan_id,
+        inspection_item_id,
+        sort_no
+        )
+        values
+        <foreach collection="itemIds"
+                 item="itemId"
+                 index="index"
+                 separator=",">
+            (
+            #{planId},
+            #{itemId},
+            #{index} + 1
+            )
+        </foreach>
+    </insert>
+    <!-- 批量插入计划 -->
+    <insert id="batchInsertSchedule">
+        insert into inspection_plan_schedule (
+        plan_id,
+        day_value
+        )
+        values
+        <foreach collection="dayValues"
+                 item="dayValue"
+                 separator=",">
+            (
+            #{planId},
+            #{dayValue}
+            )
+        </foreach>
+    </insert>
+    <!-- 先筛选同设备、同执行时刻且日期区间重叠的启用计划；
+         每周/每月是否真的同日执行，交由业务层按周期明细判断。 -->
+    <select id="findConflictCandidates"
+            resultType="com.zhixunyun.vo.InspectionPlanConflictVO">
+
+        select distinct
+        p.id as plan_id,
+        p.frequency_type,
+        p.start_date,
+        p.end_date
+        from inspection_plan p
+        join inspection_plan_equipment pe
+        on pe.plan_id = p.id
+        where p.enabled = 1
+        and p.execution_time = #{executionTime}
+
+        and pe.equipment_id in
+        <foreach collection="equipmentIds"
+                 item="equipmentId"
+                 open="("
+                 separator=","
+                 close=")">
+            #{equipmentId}
+        </foreach>
+
+        and (
+        p.end_date is null
+        or p.end_date >= #{startDate}
+        )
+
+        <if test="endDate != null">
+            and p.start_date &lt;= #{endDate}
+        </if>
+
+        <if test="excludePlanId != null">
+            and p.id != #{excludePlanId}
+        </if>
+
+    </select>
+
+    <!-- 根据计划ID查询计划 -->
+    <select id="findSchedulesByPlanIds"
+            resultType="com.zhixunyun.vo.InspectionPlanScheduleVO">
+
+        select
+        plan_id,
+        day_value
+        from inspection_plan_schedule
+        where plan_id in
+        <foreach collection="planIds"
+                 item="planId"
+                 open="("
+                 separator=","
+                 close=")">
+            #{planId}
+        </foreach>
+
+    </select>
+
+    <!-- 分页查询计划 -->
+       <select id="pageQuery"
+            resultType="com.zhixunyun.vo.InspectionPlanPageVO">
+
+        select
+        p.id,
+        p.name,
+        p.inspector_id,
+        u.display_name as inspector_name,
+        p.frequency_type,
+        p.execution_time,
+        p.enabled,
+        p.next_generate_at,
+
+        count(distinct pe.equipment_id) as equipment_count,
+
+        count(distinct pi.inspection_item_id) as inspection_item_count
+
+        from inspection_plan p
+
+        left join sys_user u
+        on u.id = p.inspector_id
+
+        left join inspection_plan_equipment pe
+        on pe.plan_id = p.id
+
+        left join inspection_plan_item pi
+        on pi.plan_id = p.id
+
+        <where>
+
+            <if test="keyword != null and keyword != ''">
+                and p.name like concat('%', #{keyword}, '%')
+            </if>
+
+            <if test="inspectorId != null">
+                and p.inspector_id = #{inspectorId}
+            </if>
+
+            <if test="frequencyType != null">
+                and p.frequency_type = #{frequencyType}
+            </if>
+
+            <if test="enabled != null">
+                and p.enabled = #{enabled}
+            </if>
+
+        </where>
+
+        group by
+        p.id,
+        p.name,
+        p.inspector_id,
+        u.display_name,
+        p.frequency_type,
+        p.execution_time,
+        p.enabled,
+        p.next_generate_at
+
+        order by p.created_at desc
+
+    </select>
+
+    <!-- 计划生成和管理操作共用行锁，避免下次生成时间与配置并发改写。 -->
+    <select id="getByIdForUpdate"
+            resultType="com.zhixunyun.entity.InspectionPlan">
+        select *
+        from inspection_plan
+        where id = #{inspectionPlanId}
+        for update
+    </select>
+
+    <!-- 查询计划详情主信息 -->
+    <select id="getDetailById"
+            resultType="com.zhixunyun.vo.InspectionPlanDetailVO">
+        select
+            p.id,
+            p.name,
+            p.inspector_id,
+            u.display_name as inspector_name,
+            p.frequency_type,
+            p.execution_time,
+            p.start_date,
+            p.end_date,
+            p.deadline_hours,
+            (select count(*)
+             from inspection_plan_equipment pe
+             where pe.plan_id = p.id) as equipment_count,
+            (select count(*)
+             from inspection_plan_item pi
+             where pi.plan_id = p.id) as inspection_item_count,
+            p.enabled,
+            p.next_generate_at,
+            p.remark,
+            p.created_at,
+            p.updated_at
+        from inspection_plan p
+        inner join sys_user u on u.id = p.inspector_id
+        where p.id = #{inspectionPlanId}
+    </select>
+
+    <select id="listEquipmentByPlanId"
+            resultType="com.zhixunyun.vo.EquipmentOptionVO">
+        select e.id, e.code, e.name, e.equipment_type_id, e.area_id
+        from inspection_plan_equipment pe
+        inner join equipment e on e.id = pe.equipment_id
+        where pe.plan_id = #{inspectionPlanId}
+        order by e.name, e.id
+    </select>
+
+    <select id="listItemsByPlanId"
+            resultType="com.zhixunyun.vo.InspectionItemOptionVO">
+        select
+            ii.id,
+            ii.code,
+            ii.name,
+            ii.result_type,
+            ii.unit,
+            ii.is_required as required
+        from inspection_plan_item pi
+        inner join inspection_item ii on ii.id = pi.inspection_item_id
+        where pi.plan_id = #{inspectionPlanId}
+        order by pi.sort_no, ii.id
+    </select>
+
+    <select id="listEquipmentIdsByPlanId" resultType="long">
+        select equipment_id
+        from inspection_plan_equipment
+        where plan_id = #{inspectionPlanId}
+        order by equipment_id
+    </select>
+
+    <select id="listItemIdsByPlanId" resultType="long">
+        select inspection_item_id
+        from inspection_plan_item
+        where plan_id = #{inspectionPlanId}
+        order by sort_no, inspection_item_id
+    </select>
+
+    <select id="listScheduleDaysByPlanId" resultType="int">
+        select day_value
+        from inspection_plan_schedule
+        where plan_id = #{inspectionPlanId}
+        order by day_value
+    </select>
+
+    <update id="update" parameterType="com.zhixunyun.entity.InspectionPlan">
+        update inspection_plan
+        set name = #{name},
+            inspector_id = #{inspectorId},
+            frequency_type = #{frequencyType},
+            execution_time = #{executionTime},
+            start_date = #{startDate},
+            end_date = #{endDate},
+            deadline_hours = #{deadlineHours},
+            next_generate_at = #{nextGenerateAt},
+            remark = #{remark}
+        where id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        update inspection_plan
+        set enabled = #{enabled},
+            next_generate_at = #{nextGenerateAt}
+        where id = #{inspectionPlanId}
+    </update>
+
+    <delete id="deleteEquipmentRelations">
+        delete from inspection_plan_equipment
+        where plan_id = #{inspectionPlanId}
+    </delete>
+
+    <delete id="deleteItemRelations">
+        delete from inspection_plan_item
+        where plan_id = #{inspectionPlanId}
+    </delete>
+
+    <delete id="deleteScheduleRelations">
+        delete from inspection_plan_schedule
+        where plan_id = #{inspectionPlanId}
+    </delete>
+
+    <select id="countTasks" resultType="int">
+        select count(*)
+        from inspection_task
+        where plan_id = #{inspectionPlanId}
+    </select>
+
+    <delete id="deleteById">
+        delete from inspection_plan
+        where id = #{inspectionPlanId}
+    </delete>
+
+    <select id="listDuePlanIds" resultType="long">
+        select id
+        from inspection_plan
+        where enabled = 1
+          and next_generate_at is not null
+          and next_generate_at &lt;= #{now}
+        order by next_generate_at, id
+        limit #{limit}
+    </select>
+
+    <!-- 仅在计划仍启用且生成游标未改变时推进，防止覆盖并发管理操作。 -->
+    <update id="updateNextGenerateAt">
+        update inspection_plan
+        set next_generate_at = #{next}
+        where id = #{planId}
+          and enabled = 1
+          and next_generate_at = #{expected}
+    </update>
+</mapper>

@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.zhixunyun.mapper.EquipmentMapper">
+    <!-- 分页查询设备 -->
+    <select id="pageQuery" resultType="com.zhixunyun.vo.EquipmentVO">
+        select
+            e.id,
+            e.code,
+            e.name,
+            e.equipment_type_id,
+            et.name as equipment_type_name,
+            e.area_id,
+            a.name as area_name,
+            e.status,
+            e.last_inspection_at
+        from equipment e
+        inner join equipment_type et on et.id = e.equipment_type_id
+        inner join area a on a.id = e.area_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (
+                    e.code like concat('%', #{keyword}, '%')
+                    or e.name like concat('%', #{keyword}, '%')
+                    or e.serial_number like concat('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="equipmentTypeId != null">
+                and e.equipment_type_id = #{equipmentTypeId}
+            </if>
+            <if test="areaId != null">
+                and e.area_id = #{areaId}
+            </if>
+            <if test="status != null">
+                and e.status = #{status}
+            </if>
+        </where>
+        order by e.created_at desc, e.id desc
+    </select>
+    <!-- 根据设备编码查询设备 -->
+    <select id="getByCode" resultType="com.zhixunyun.entity.Equipment">
+        select *
+        from equipment
+        where code = #{code}
+    </select>
+
+    <!-- 根据设备序列号查询设备 -->
+    <select id="getBySerialNumber" resultType="com.zhixunyun.entity.Equipment">
+        select *
+        from equipment
+        where serial_number = #{serialNumber}
+    </select>
+
+    <!-- 根据设备ID查询设备 -->
+    <select id="getById" resultType="com.zhixunyun.entity.Equipment">
+        select *
+        from equipment
+        where id = #{equipmentId}
+    </select>
+
+    <!-- 插入设备 -->
+    <insert id="insert"
+            parameterType="com.zhixunyun.entity.Equipment"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        insert into equipment (
+            code,
+            name,
+            equipment_type_id,
+            area_id,
+            model,
+            manufacturer,
+            serial_number,
+            install_date,
+            status,
+            remark
+        ) values (
+            #{code},
+            #{name},
+            #{equipmentTypeId},
+            #{areaId},
+            #{model},
+            #{manufacturer},
+            #{serialNumber},
+            #{installDate},
+            #{status},
+            #{remark}
+        )
+    </insert>
+
+    <!-- 查询设备选项 -->
+    <select id="listOptions" resultType="com.zhixunyun.vo.EquipmentOptionVO">
+        select id, code, name, equipment_type_id, area_id
+        from equipment
+        where status = 'NORMAL'
+        <if test="equipmentTypeId != null">
+            and equipment_type_id = #{equipmentTypeId}
+        </if>
+        <if test="areaId != null">
+            and area_id = #{areaId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (
+                code like concat('%', #{keyword}, '%')
+                or name like concat('%', #{keyword}, '%')
+            )
+        </if>
+        order by name, id
+    </select>
+
+    <!-- 根据设备ID查询设备详情 -->
+    <select id="getDetailById" resultType="com.zhixunyun.vo.EquipmentDetailVO">
+        select
+            e.id,
+            e.code,
+            e.name,
+            e.equipment_type_id,
+            et.name as equipment_type_name,
+            e.area_id,
+            a.name as area_name,
+            e.status,
+            e.last_inspection_at,
+            e.model,
+            e.manufacturer,
+            e.serial_number,
+            e.install_date,
+            e.remark,
+            e.created_at,
+            e.updated_at
+        from equipment e
+        inner join equipment_type et on et.id = e.equipment_type_id
+        inner join area a on a.id = e.area_id
+        where e.id = #{equipmentId}
+    </select>
+
+    <!-- 更新设备 -->
+    <update id="update" parameterType="com.zhixunyun.entity.Equipment">
+        update equipment
+        set code = #{code},
+            name = #{name},
+            equipment_type_id = #{equipmentTypeId},
+            area_id = #{areaId},
+            model = #{model},
+            manufacturer = #{manufacturer},
+            serial_number = #{serialNumber},
+            install_date = #{installDate},
+            remark = #{remark}
+        where id = #{id}
+    </update>
+
+    <!-- 更新设备状态 -->
+    <update id="updateStatus">
+        update equipment
+        set status = #{status}
+        where id = #{equipmentId}
+          and status in ('NORMAL', 'DISABLED')
+    </update>
+
+    <!-- 统计设备业务引用数量 -->
+    <select id="countBusinessReferences" resultType="int">
+        select
+            (select count(*) from inspection_plan_equipment where equipment_id = #{equipmentId})
+          + (select count(*) from inspection_task_equipment where equipment_id = #{equipmentId})
+          + (select count(*) from inspection_record where equipment_id = #{equipmentId})
+          + (select count(*) from fault_record where equipment_id = #{equipmentId})
+          + (select count(*) from work_order where equipment_id = #{equipmentId})
+    </select>
+
+    <!-- 删除设备 -->
+    <delete id="deleteById">
+        delete from equipment
+        where id = #{equipmentId}
+    </delete>
+
+    <update id="updateAfterInspection">
+        update equipment
+        set last_inspection_at = #{inspectedAt},
+            status = case
+                when #{abnormal} = true and status = 'NORMAL' then 'FAULT'
+                else status
+            end
+        where id = #{equipmentId}
+    </update>
+
+    <update id="markInRepair">
+        update equipment
+        set status = 'IN_REPAIR'
+        where id = #{equipmentId} and status = 'FAULT'
+    </update>
+
+    <update id="restoreNormalIfNoActiveWorkOrder">
+        update equipment e
+        set status = 'NORMAL'
+        where e.id = #{equipmentId}
+          and e.status in ('FAULT', 'IN_REPAIR')
+          and not exists (
+              select 1 from work_order w
+              where w.equipment_id = e.id
+                and w.status in ('PENDING_ASSIGNMENT', 'PENDING_ACCEPTANCE',
+                                 'PROCESSING', 'PENDING_VERIFICATION', 'REJECTED')
+          )
+    </update>
+
+    <!-- 根据设备ID列表查询设备 -->
+    <select id="getByIds"
+            resultType="com.zhixunyun.entity.Equipment">
+        select
+        id,
+        status,
+        equipment_type_id
+        from equipment
+        where id in
+        <foreach collection="ids"
+                 item="id"
+                 open="("
+                 separator=","
+                 close=")">
+            #{id}
+        </foreach>
+        order by id
+        for update
+    </select>
+</mapper>

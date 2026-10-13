@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.zhixunyun.mapper.InspectionItemMapper">
+
+    <!-- 分页查询巡检项目 -->
+       <select id="pageQuery" resultType="com.zhixunyun.vo.InspectionItemVO">
+        select
+            ii.id,
+            ii.code,
+            ii.name,
+            ii.equipment_type_id,
+            et.name as equipment_type_name,
+            ii.result_type,
+            ii.is_required as required,
+            ii.enabled
+        from inspection_item ii
+        inner join equipment_type et on et.id = ii.equipment_type_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                and (
+                    ii.code like concat('%', #{keyword}, '%')
+                    or ii.name like concat('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="equipmentTypeId != null">
+                and ii.equipment_type_id = #{equipmentTypeId}
+            </if>
+            <if test="resultType != null">
+                and ii.result_type = #{resultType}
+            </if>
+            <if test="enabled != null">
+                and ii.enabled = #{enabled}
+            </if>
+        </where>
+        order by ii.created_at desc, ii.id desc
+    </select>
+
+    <!-- 根据编码查询巡检项目 -->
+       <select id="getByCode" resultType="com.zhixunyun.entity.InspectionItem">
+        select
+            id, code, name, equipment_type_id, check_method,
+            standard_description, result_type, unit, min_value, max_value,
+            is_required as required, enabled, created_at, updated_at
+        from inspection_item
+        where code = #{code}
+    </select>
+
+    <!-- 根据ID查询巡检项目 -->
+       <select id="getById" resultType="com.zhixunyun.entity.InspectionItem">
+        select
+            id, code, name, equipment_type_id, check_method,
+            standard_description, result_type, unit, min_value, max_value,
+            is_required as required, enabled, created_at, updated_at
+        from inspection_item
+        where id = #{inspectionItemId}
+    </select>
+
+    <!-- 新增巡检项目 -->
+       <insert id="insert"
+            parameterType="com.zhixunyun.entity.InspectionItem"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        insert into inspection_item (
+            code,
+            name,
+            equipment_type_id,
+            check_method,
+            standard_description,
+            result_type,
+            unit,
+            min_value,
+            max_value,
+            is_required,
+            enabled
+        ) values (
+            #{code},
+            #{name},
+            #{equipmentTypeId},
+            #{checkMethod},
+            #{standardDescription},
+            #{resultType},
+            #{unit},
+            #{minValue},
+            #{maxValue},
+            #{required},
+            #{enabled}
+        )
+    </insert>
+
+    <!-- 查询巡检项目选项 -->
+       <select id="listOptions" resultType="com.zhixunyun.vo.InspectionItemOptionVO">
+        select
+            id,
+            code,
+            name,
+            result_type,
+            unit,
+            is_required as required
+        from inspection_item
+        where equipment_type_id = #{equipmentTypeId}
+          and enabled = 1
+        <if test="keyword != null and keyword != ''">
+            and (
+                code like concat('%', #{keyword}, '%')
+                or name like concat('%', #{keyword}, '%')
+            )
+        </if>
+        order by name, id
+    </select>
+
+    <!-- 根据ID查询巡检项目详情 -->
+       <select id="getDetailById" resultType="com.zhixunyun.vo.InspectionItemDetailVO">
+        select
+            ii.id,
+            ii.code,
+            ii.name,
+            ii.equipment_type_id,
+            et.name as equipment_type_name,
+            ii.check_method,
+            ii.standard_description,
+            ii.result_type,
+            ii.unit,
+            ii.min_value,
+            ii.max_value,
+            ii.is_required as required,
+            ii.enabled,
+            ii.created_at,
+            ii.updated_at
+        from inspection_item ii
+        inner join equipment_type et on et.id = ii.equipment_type_id
+        where ii.id = #{inspectionItemId}
+    </select>
+
+    <!-- 更新巡检项目 -->
+       <update id="update" parameterType="com.zhixunyun.entity.InspectionItem">
+        update inspection_item
+        set code = #{code},
+            name = #{name},
+            equipment_type_id = #{equipmentTypeId},
+            check_method = #{checkMethod},
+            standard_description = #{standardDescription},
+            result_type = #{resultType},
+            unit = #{unit},
+            min_value = #{minValue},
+            max_value = #{maxValue},
+            is_required = #{required}
+        where id = #{id}
+    </update>
+
+    <!-- 更新巡检项目状态 -->
+       <update id="updateStatus">
+        update inspection_item
+        set enabled = #{enabled}
+        where id = #{inspectionItemId}
+    </update>
+
+    <!-- 根据ID列表查询巡检项目 -->
+       <select id="getByIds"
+            resultType="com.zhixunyun.entity.InspectionItem">
+        select *
+        from inspection_item
+        where id in
+        <foreach collection="ids"
+                 item="id"
+                 open="("
+                 separator=","
+                 close=")">
+            #{id}
+        </foreach>
+    </select>
+</mapper>

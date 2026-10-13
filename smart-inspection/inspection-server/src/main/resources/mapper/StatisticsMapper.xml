@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhixunyun.mapper.StatisticsMapper">
+    <sql id="periodExpression">
+        <choose>
+            <when test="granularity.name() == 'WEEK'">
+                date_format(date_sub(event_time, interval weekday(event_time) day), '%Y-%m-%d')
+            </when>
+            <when test="granularity.name() == 'MONTH'">
+                date_format(event_time, '%Y-%m')
+            </when>
+            <otherwise>date_format(event_time, '%Y-%m-%d')</otherwise>
+        </choose>
+    </sql>
+
+    <!-- 将创建和完成事件合并后按同一粒度分组，避免分别聚合再拼接产生缺失日期。 -->
+    <select id="getWorkOrderTrend" resultType="com.zhixunyun.vo.WorkOrderTrendPointVO">
+        select <include refid="periodExpression"/> as period,
+               sum(created_count) as created_count,
+               sum(completed_count) as completed_count
+        from (
+            select created_at as event_time, 1 as created_count, 0 as completed_count
+            from work_order
+            where created_at &gt;= #{startDate} and created_at &lt; date_add(#{endDate}, interval 1 day)
+            union all
+            select completed_at as event_time, 0 as created_count, 1 as completed_count
+            from work_order
+            where completed_at &gt;= #{startDate} and completed_at &lt; date_add(#{endDate}, interval 1 day)
+        ) events
+        group by period
+        order by period
+    </select>
+
+    <select id="countFaultsByLevel" resultType="com.zhixunyun.vo.CountByFaultLevelVO">
+        select fault_level, count(*) as count
+        from fault_record
+        where reported_at &gt;= #{startDate} and reported_at &lt; date_add(#{endDate}, interval 1 day)
+        group by fault_level
+    </select>
+
+    <select id="countEquipmentByStatus" resultType="com.zhixunyun.vo.CountByEquipmentStatusVO">
+        select status, count(*) as count from equipment group by status
+    </select>
+
+    <!-- 仪表盘按角色选择不同的数据范围：管理员全局、巡检员按上报/负责关系、
+         维修员按指派关系，避免只靠接口角色授权泄露全局统计。 -->
+    <select id="getDashboard" resultType="com.zhixunyun.vo.DashboardStatisticsVO">
+        select
+          case when #{role} = 'ADMIN' then (select count(*) from equipment) else null end
+              as equipment_total_count,
+          case
+            when #{role} = 'MAINTAINER' then 0
+            else (select count(*) from inspection_task t
+                  where t.task_date = current_date and t.status in ('PENDING', 'IN_PROGRESS')
+                    and (#{role} = 'ADMIN' or t.inspector_id = #{userId}))
+          end as today_pending_inspection_count,
+          case
+            when #{role} = 'MAINTAINER' then 0
+            else (select count(*) from inspection_task t
+                  where t.task_date = current_date and t.status = 'COMPLETED'
+                    and (#{role} = 'ADMIN' or t.inspector_id = #{userId}))
+          end as today_completed_inspection_count,
+          case
+            when #{role} = 'ADMIN' then
+              (select count(*) from equipment where status in ('FAULT', 'IN_REPAIR'))
+            when #{role} = 'INSPECTOR' then
+              (select count(distinct f.equipment_id) from fault_record f
+               where f.reporter_id = #{userId} and f.status != 'CLOSED')
+            else
+              (select count(distinct w.equipment_id) from work_order w
+               where w.maintainer_id = #{userId}
+                 and w.status not in ('COMPLETED', 'CANCELLED'))
+          end as abnormal_equipment_count,
+          (select count(*) from work_order w
+           join fault_record f on f.id = w.fault_record_id
+           where w.status not in ('COMPLETED', 'CANCELLED')
+             and (#{role} = 'ADMIN'
+                  or (#{role} = 'MAINTAINER' and w.maintainer_id = #{userId})
+                  or (#{role} = 'INSPECTOR' and f.reporter_id = #{userId})))
+              as pending_work_order_count,
+          (select count(*) from work_order w
+           join fault_record f on f.id = w.fault_record_id
+           where w.priority = 'URGENT' and w.status not in ('COMPLETED', 'CANCELLED')
+             and (#{role} = 'ADMIN'
+                  or (#{role} = 'MAINTAINER' and w.maintainer_id = #{userId})
+                  or (#{role} = 'INSPECTOR' and f.reporter_id = #{userId})))
+              as urgent_work_order_count,
+          coalesce((select round(100.0 * sum(w.status = 'COMPLETED') / nullif(count(*), 0), 2)
+                    from work_order w
+                    join fault_record f on f.id = w.fault_record_id
+                    where w.status != 'CANCELLED'
+                      and (#{role} = 'ADMIN'
+                           or (#{role} = 'MAINTAINER' and w.maintainer_id = #{userId})
+                           or (#{role} = 'INSPECTOR' and f.reporter_id = #{userId}))), 0)
+              as work_order_completion_rate
+    </select>
+</mapper>
